@@ -42,6 +42,10 @@ const LanguageTester = class LanguageTester {
                 if (a.strIdx !== b.strIdx) {
                     return a.strIdx - b.strIdx;
                 }
+                // always prioritize closing tags
+                if(a.opening !== b.opening) {
+                    return a.opening ? 1 : -1;
+                }
                 // make sure tags are closed in the reverse order they were opened in.
                 return a.opening ? a.tagIdx - b.tagIdx : b.tagIdx - a.tagIdx;
             });
