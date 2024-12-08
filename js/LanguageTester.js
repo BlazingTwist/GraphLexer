@@ -17,7 +17,7 @@ const LanguageTester = class LanguageTester {
      * @private
      */
     _createLangInputPanel() {
-        this.inputField = Templating.html(`<textarea style="white-space: nowrap; width: 300px; height: 500px;"></textarea>`);
+        this.inputField = Templating.html(`<textarea style="white-space: pre; width: 300px; height: 500px;"></textarea>`);
 
         const instance = this;
         this.inputField.element.addEventListener("input", () => {
