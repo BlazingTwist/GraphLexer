@@ -110,7 +110,7 @@ const LanguageTester = class LanguageTester {
                 tagIdx++;
             }
 
-            instance.unmatchedCharOutput.element.innerHTML = `${numUnmatched}`;
+            instance.unmatchedCharOutput.element.innerHTML = `${numUnmatched} chars`;
             instance.unmatchedOutput.element.value = evalResult.unmatchedStr || "";
 
             instance.errorGrid.element.innerHTML = ''; // remove children
