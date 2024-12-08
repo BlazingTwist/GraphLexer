@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+
+    <script src="../js/langDef/LangEvaluator.js"></script>
+    <script src="../js/langDef/LangNode_ApplyTag.js"></script>
+    <script src="../js/langDef/LangNode_MatchLiteral.js"></script>
+    <script src="../js/langDef/LangNode_MatchRegex.js"></script>
+    <script src="../js/langDef/LangNode_MatchUnicode.js"></script>
+    <script src="../js/langDef/LangNode_State.js"></script>
+    <script src="../js/langDef/LangNode_SubState.js"></script>
+    <script src="../js/langDef/LangTreeNode.js"></script>
+    <script src="../js/langDef/NodeTypes.js"></script>
+
+    <script src="../js/DragWindow.js"></script>
+    <script src="../js/LanguageTester.js"></script>
+    <script src="../js/SvgGenerator.js"></script>
+    <script src="../js/Templating.js"></script>
+
+    <link rel="stylesheet" href="/css/icons.css">
+    <link rel="stylesheet" href="/css/language-tester.css">
+    <link rel="stylesheet" href="/css/svg.css">
+    <link rel="stylesheet" href="/css/window.css">
+
+    <style>
+        .stateContainerHitBox {
+            padding-left: 20px;
+            padding-right: 30px;
+        }
+
+        .stateContainer {
+            position: relative;
+        }
+
+        .stateLabelBox {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            left: 0;
+            top: 0;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body style="margin: 0;">
+
+    <div style="overflow: auto; width: 100vw; height: 100vh; padding: 10px; box-sizing: border-box;">
+        <div style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 30px; zoom: 0.55;"
+             id="mainDiv"></div>
+    </div>
+
+    <script>
+        let mainDiv = document.getElementById("mainDiv");
+
+        /**
+         * @param {LangNodeMeta} rootNode
+         * @param {number} nodeHeight
+         * @return {Templating.HtmlTemplateElement} a container with the grid.
+         */
+        function createGraphHtml(rootNode, nodeHeight) {
+            // calculate the maximum width for each column
+            let colWidths = [];
+            iterateTreeLayers(rootNode, (i, nodes) => {
+                let width = Math.max(...nodes.map(n => chToPx(n.langNode.contentText().length + 3)));
+                colWidths.push(width);
+            });
+
+            let unfoldButton = Templating.html(`<i class="fa-sm fa-unfold-all" style="display: none"></i>`);
+            let foldButton = Templating.html(`<i class="fa-sm fa-fold-all"></i>`);
+
+            let windowHandle = Templating.html(`<div></div>`)
+                .child(Templating.html(`<span>${rootNode.langNode.contentText()}</span>`))
+                .child(Templating.html(`<div style="display: flex; flex-direction: row; gap: 4px; align-items: center"></div>`)
+                    .child(unfoldButton)
+                    .child(foldButton)
+                );
+            let nodeGrid = Templating.html(`<div style="display: grid; grid-template-columns: ${colWidths.map(w => w + "px").join(",")}; grid-auto-rows: ${nodeHeight}px; grid-row-gap: 15px;"></div>`);
+            let window = Templating.html(`<div style="position: inherit;"></div>`)
+                .child(windowHandle)
+                .child(Templating.html(`<div class="window-content" style="padding: 10px;"></div>`)
+                    .child(nodeGrid)
+                );
+
+            let dragWindow = new DragWindow(window.element);
+            dragWindow.addDragHandle(windowHandle.element);
+
+            unfoldButton.element.addEventListener("click", () => {
+                dragWindow.unfold();
+                foldButton.element.style.display = "block";
+                unfoldButton.element.style.display = "none";
+            });
+            foldButton.element.addEventListener("click", () => {
+                dragWindow.fold();
+                unfoldButton.element.style.display = "block";
+                foldButton.element.style.display = "none";
+            });
+
+            /** @type {[{node: LangNodeMeta, x: number, y: number, arrowHead: null | Templating.HtmlTemplateElement}]} */
+            let dfsStack = [{node: rootNode, x: 0, y: 0, arrowHead: null}];
+            while (dfsStack.length > 0) {
+                const nodeMeta = dfsStack.pop();
+                const node = nodeMeta.node;
+                const x = nodeMeta.x;
+                const y = nodeMeta.y;
+                const arrowHead = nodeMeta.arrowHead;
+
+                /** @type {HTMLElement[]} */
+                let arrowLines = [];
+                let childY = y;
+                const yGap = nodeHeight + 15;
+                dfsStack.push(...node.transitions.map(t => {
+                    let arrowGen = t.commit ? SvgGenerator.arrowCommit : SvgGenerator.arrowBacktrack;
+                    let [line, head] = arrowGen(50, (childY - y) * yGap, 14, 14, 2);
+                    line.element.style.pointerEvents = "none";
+                    arrowLines.push(line.element);
+
+                    let res = {node: t.node, x: x + 1, y: childY, arrowHead: head};
+                    childY += t.node.height;
+                    return res;
+                }).reverse());
+
+                const [nodeHtml, stateContainer] = createNodeHtml(node.langNode.svgGenerator(), colWidths[x], nodeHeight, node.langNode.contentText(), arrowLines);
+                if (arrowHead !== null) stateContainer.child(arrowHead.element);
+                nodeGrid.child(nodeHtml.element, nh => {
+                    nh.style.gridColumn = `${x + 1}`;
+                    nh.style.gridRow = `${y + 1}`;
+                    return nh;
+                });
+            }
+            return window;
+        }
+
+        /**
+         * @param {function(number, number, number): Templating.HtmlTemplateElement} stateFnc
+         * @param {number} width
+         * @param {number} height
+         * @param {string} text
+         * @param {HTMLElement[]} arrowLines
+         * @return {[Templating.HtmlTemplateElement, Templating.HtmlTemplateElement]}
+         */
+        function createNodeHtml(stateFnc, width, height, text, arrowLines) {
+            const strokeSize = 2;
+            let stateContainer = Templating.html(`<div class="stateContainer" style="width: ${width}px; height: ${height}px"/>`)
+                .child([
+                    ...arrowLines,
+                    stateFnc(width, height, strokeSize).element,
+                    SvgGenerator.chevronUp(22, 13, 4).element,
+                    SvgGenerator.chevronDown(22, 13, 4).element,
+                    SvgGenerator.addCircle(20, 20, 3).element,
+                    Templating.html(`<div class="stateLabelBox"><span>${text}</span></div>`).element
+                ]);
+            let hitBox = Templating
+                .html(`<div class="stateContainerHitBox" style="width: ${width}px; height: ${height}px"/>`)
+                .child(stateContainer.element);
+            return [hitBox, stateContainer];
+        }
+
+        /**
+         * @typedef LangNodeMeta
+         * @property {LangNode} langNode
+         * @property {LangTransition[]} transitions
+         * @property {number} height
+         */
+
+        /**
+         * @typedef LangTransition
+         * @property {boolean} commit
+         * @property {LangNodeMeta} node
+         */
+
+        /**
+         * @param {LangTreeNode} treeNode
+         * @return {LangNodeMeta}
+         */
+        function computeMetaNode(treeNode) {
+            /** @type {LangTransition[]} */
+            let transitions = treeNode.transitions.map(tn => {
+                return {node: computeMetaNode(tn), commit: tn.commit};
+            });
+            let height = Math.max(1, transitions.map(t => t.node.height).reduce((acc, x) => acc + x, 0));
+            return {
+                langNode: treeNode.node,
+                transitions: transitions,
+                height: height
+            };
+        }
+
+        /**
+         * @param {number} ch
+         * @returns {number}
+         */
+        function chToPx(ch) {
+            return ch * 12.5;
+        }
+
+        /**
+         * @param {LangNodeMeta} rootNode
+         * @param {function(index: number, node: LangNodeMeta[])} callback
+         */
+        function iterateTreeLayers(rootNode, callback) {
+            let i = 0;
+            /** @type {LangNodeMeta[]} */
+            let nodes = [rootNode];
+            /** @type {LangNodeMeta[]} */
+            let nextNodes = [];
+            while (nodes.length > 0) {
+                callback(i, nodes);
+                for (let node of nodes) {
+                    nextNodes.push(...node.transitions.map(t => t.node));
+                }
+                nodes = nextNodes;
+                nextNodes = [];
+            }
+        }
+
+        let states = [
+            new LangTreeNode(false, new LangNode_State("Variable"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("Variable"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("[a-z_]+"), []),
+                    new LangTreeNode(true, new LangNode_SubState("String", undefined), []),
+                    new LangTreeNode(true, new LangNode_MatchUnicode({minCodeInclusive: 127}), []),
+                ]),
+            ]),
+            new LangTreeNode(false, new LangNode_State("List"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("List"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral("["), [
+                        new LangTreeNode(true, new LangNode_SubState("Token", {
+                            greedy: false,
+                            minRepeat: 0,
+                            maxRepeat: undefined
+                        }), [
+                            new LangTreeNode(true, new LangNode_MatchLiteral("]"), []),
+                        ]),
+                    ]),
+                ]),
+            ]),
+            new LangTreeNode(false, new LangNode_State("EOL"), [
+                new LangTreeNode(true, new LangNode_MatchRegex("[^\\n]*"), []),
+            ]),
+            new LangTreeNode(false, new LangNode_State("EOB"), [
+                new LangTreeNode(true, new LangNode_MatchRegex(".*?\\.}"), []),
+            ]),
+            /*new LangTreeNode(false, new LangNode_State("StringChar"), [
+                new LangTreeNode(false, new LangNode_MatchLiteral("\\"), [
+                    new LangTreeNode(false, new LangNode_ApplyTag("SpecialChar"), [
+                        new LangTreeNode(true, new LangNode_MatchRegex("\\{.*?\\}"), []),
+                    ]),
+                    new LangTreeNode(false, new LangNode_ApplyTag("EscapeChar"), [
+                        new LangTreeNode(true, new LangNode_MatchRegex("."), []),
+                    ]),
+                ]),
+                new LangTreeNode(true, new LangNode_MatchRegex("."), []),
+            ]),*/
+            new LangTreeNode(false, new LangNode_State("StringChar"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("SpecialChar"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("\\\\\\{.*?\\}"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("EscapeChar"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("\\\\."), []),
+                ]),
+                new LangTreeNode(true, new LangNode_MatchRegex("."), []),
+            ]),
+            new LangTreeNode(false, new LangNode_State("String"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("StringLiteral"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral("\""), [
+                        new LangTreeNode(true, new LangNode_SubState("StringChar", {
+                            greedy: false,
+                            minRepeat: 0,
+                            maxRepeat: undefined
+                        }), [
+                            new LangTreeNode(true, new LangNode_MatchLiteral("\""), []),
+                        ]),
+                    ]),
+                ]),
+            ]),
+            new LangTreeNode(false, new LangNode_State("Number"), [
+                new LangTreeNode(true, new LangNode_MatchRegex("-?[0-9]+"), []),
+                new LangTreeNode(true, new LangNode_MatchRegex("-?[0-9]*\\.[0-9]+"), []),
+            ]),
+            new LangTreeNode(false, new LangNode_State("Integer"), [
+                new LangTreeNode(true, new LangNode_MatchRegex("-?[0-9]+"), []),
+            ]),
+            new LangTreeNode(false, new LangNode_State("SpecialNumber"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("num_hex"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("0x-?[0-9a-f]+"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_bin"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("0b-?[01]+"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_imaginary"), [
+                    new LangTreeNode(false, new LangNode_SubState("Number", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("i"), [
+                            new LangTreeNode(true, new LangNode_SubState("Number", {
+                                greedy: true,
+                                minRepeat: 0,
+                                maxRepeat: 1
+                            }), []),
+                        ]),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_rational"), [
+                    new LangTreeNode(false, new LangNode_SubState("Integer", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("r"), [
+                            new LangTreeNode(true, new LangNode_SubState("Integer", {
+                                greedy: true,
+                                minRepeat: 0,
+                                maxRepeat: 1
+                            }), []),
+                        ]),
+                    ]),
+                    new LangTreeNode(false, new LangNode_SubState("Number", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("r"), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_pi"), [
+                    new LangTreeNode(false, new LangNode_SubState("Number", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("p"), [
+                            new LangTreeNode(true, new LangNode_SubState("Number", {
+                                greedy: true,
+                                minRepeat: 0,
+                                maxRepeat: 1
+                            }), []),
+                        ]),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_big"), [
+                    new LangTreeNode(false, new LangNode_SubState("Integer", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("z"), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_root"), [
+                    new LangTreeNode(false, new LangNode_SubState("Number", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("q"), [
+                            new LangTreeNode(true, new LangNode_SubState("Number", {
+                                greedy: true,
+                                minRepeat: 0,
+                                maxRepeat: 1
+                            }), []),
+                        ]),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_sci"), [
+                    new LangTreeNode(false, new LangNode_SubState("Number", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("e"), [
+                            new LangTreeNode(true, new LangNode_SubState("Number", {
+                                greedy: true,
+                                minRepeat: 0,
+                                maxRepeat: 1
+                            }), []),
+                        ]),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_const"), [
+                    new LangTreeNode(false, new LangNode_SubState("Integer", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("c"), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_str"), [
+                    new LangTreeNode(false, new LangNode_SubState("Integer", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchLiteral("s"), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("num_negate"), [
+                    new LangTreeNode(true, new LangNode_SubState("Integer", undefined), []),
+                ]),
+            ]),
+            new LangTreeNode(false, new LangNode_State("Token"), [
+                new LangTreeNode(false, new LangNode_ApplyTag("SetVariable"), [
+                    new LangTreeNode(false, new LangNode_MatchLiteral(".:"), [
+                        new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("SetIndex"), [
+                    new LangTreeNode(false, new LangNode_MatchLiteral(".:"), [
+                        new LangTreeNode(true, new LangNode_SubState("List", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("GetVariable"), [
+                    new LangTreeNode(false, new LangNode_MatchLiteral("."), [
+                        new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("GetIndex"), [
+                    new LangTreeNode(false, new LangNode_MatchLiteral("."), [
+                        new LangTreeNode(true, new LangNode_SubState("List", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("LineDoc"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral(".#?"), [
+                        new LangTreeNode(true, new LangNode_SubState("EOL", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("LineComment"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral(".#"), [
+                        new LangTreeNode(true, new LangNode_SubState("EOL", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("BlockDoc"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral(".{?"), [
+                        new LangTreeNode(true, new LangNode_SubState("EOB", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("BlockComment"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral(".{"), [
+                        new LangTreeNode(true, new LangNode_SubState("EOB", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("DotOperator"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("\\.."), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("Symbol"), [
+                    new LangTreeNode(true, new LangNode_MatchLiteral("::"), [
+                        new LangTreeNode(true, new LangNode_SubState("String", undefined), []),
+                        new LangTreeNode(true, new LangNode_MatchRegex("[a-z_]+"), []),
+                        new LangTreeNode(true, new LangNode_MatchRegex("[M:\\.]?."), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("NamedOperator"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex(":\\{.*?\\}"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_MatchLiteral(":"), [
+                    new LangTreeNode(true, new LangNode_SubState("SpecialNumber", undefined), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("SetGlobalVariable"), [
+                    new LangTreeNode(false, new LangNode_MatchLiteral(":"), [
+                        new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("ColonOperator"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex(":."), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("MathOperator"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("M."), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("cDict"), [
+                    new LangTreeNode(true, new LangNode_MatchUnicode({minCodeInclusive: 127}), [
+                        new LangTreeNode(true, new LangNode_MatchRegex("."), []),
+                    ]),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("LongStringLiteral"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("\"\"\".*?\"\"\""), []),
+                ]),
+                new LangTreeNode(true, new LangNode_SubState("String", undefined), []),
+                new LangTreeNode(false, new LangNode_ApplyTag("SpecialCharLiteral"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("'\\\\.*?'"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("CharLiteral"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("'."), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("NumberLiteral"), [
+                    new LangTreeNode(true, new LangNode_SubState("Number", undefined), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("GetGlobalVariable"), [
+                    new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("SpecialToken"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("[,`()[]{}#]"), []),
+                ]),
+                new LangTreeNode(false, new LangNode_ApplyTag("Operator"), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("[^\\s]"), []),
+                ]),
+            ]),
+            new LangTreeNode(false, new LangNode_State("Token_space"), [
+                new LangTreeNode(true, new LangNode_SubState("Token", undefined), [
+                    new LangTreeNode(true, new LangNode_MatchRegex("\\s*"), []),
+                ]),
+            ]),
+            /*new LangTreeNode(false, new LangNode_State("Program"), [
+                new LangTreeNode(true, new LangNode_SubState("Token_space", {greedy: true, minRepeat: 0, maxRepeat: undefined}), []),
+            ]),*/
+        ];
+
+        let stateMap = {};
+        for (let state of states) {
+            // noinspection JSValidateTypes
+            /** @type {LangNode_State} */
+            let node = state.node;
+            stateMap[node.stateName] = state;
+        }
+
+        let y = 10;
+        for (let state of states) {
+            let grid = createGraphHtml(computeMetaNode(state), 60);
+            grid.element.style.top = y + "px";
+            mainDiv.appendChild(grid.element);
+            y += grid.element.offsetHeight + 10;
+        }
+
+        // let startTime = Date.now();
+        let evaluator = new LangEvaluator(stateMap, "Token_space");
+        /*let inputStr = "\"hello\\\\ world!\" :P .# prints \"hello\\ world!\"\n" +
+            "\n" +
+            ".{ Example List .}\n" +
+            "[ \"string\" var 12 ]\n" +
+            "\"unclosed";
+        let result = evaluator.evaluateAll(inputStr);
+        let endTime = Date.now();
+        console.log(`eval took ${endTime - startTime} ms`);
+
+        console.log(`matchLength: ${result.result.len}`);
+        for (let tag of result.result.tags) {
+            console.log(`tag: '${tag.name}' at ${tag.index}, len ${tag.len} = '${inputStr.substring(tag.index, tag.index + tag.len)}'`);
+        }
+        if(result.evalError !== undefined) {
+            let err = result.evalError;
+            console.error(`${err.type}: ${err.message}\n  StateTrace:${err.stateStack.map(s => "\n    " + s).join("")}\n  Tag-Trace:${err.tagStack.map(t => "\n    " + t).join("")}\n  Committed Input: ${err.committedInput}`);
+        }
+        if(result.unmatchedStr !== undefined) {
+            console.warn(`Unable to match more tokens, remaining input is: '${result.unmatchedStr}'`);
+        }*/
+
+        let testWindow = new LanguageTester(evaluator);
+        document.body.appendChild(testWindow.dragWindow.windowElement);
+        testWindow.dragWindow.show(0.5, 0.1);
+
+    </script>
+
+</body>
+</html>

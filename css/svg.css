@@ -1,0 +1,124 @@
+.stateContainerHitBox .svg-hover-button {
+    display: none;
+}
+
+.stateContainerHitBox:hover .svg-hover-button {
+    display: inherit;
+}
+
+.stateContainer {
+    font-size: 20px;
+    font-family: "JetBrains Mono", monospace;
+    white-space: nowrap;
+}
+
+.svg-hover-button > path {
+    stroke: #aaa;
+}
+
+.svg-element:hover,
+.svg-chevron-up:hover > path,
+.svg-chevron-down:hover > path,
+.svg-add-circle:hover > path,
+.svg-arrow-head-backtrack:hover > path {
+    stroke: #6cacec;
+}
+
+.svg-arrow-head-commit:hover > path {
+    stroke: #6cacec;
+    fill: #6cacec;
+}
+
+.svg-element:active,
+.svg-chevron-up:active > path,
+.svg-chevron-down:active > path,
+.svg-add-circle:active > path,
+.svg-arrow-head-backtrack:active > path {
+    stroke: #0080F0;
+}
+
+.svg-arrow-head-commit:active > path {
+    stroke: #0080F0;
+    fill: #0080F0;
+}
+
+.state-def {
+    fill: #ECE9F0;
+    stroke: #AEA0BA;
+}
+
+.state-call {
+    fill: #ECE9F0;
+    stroke: #AEA0BA;
+}
+
+.match-literal {
+    fill: #F0EADF;
+    stroke: #BAB6AB;
+}
+
+.match-regex {
+    fill: #F0EADF;
+    stroke: #BAB6AB;
+}
+
+.apply-tag {
+    fill: #F7D7D3;
+    stroke: #DE9E87;
+}
+
+.svg-chevron-up,
+.svg-chevron-down {
+    position: absolute;
+    left: 0;
+    top: 50%;
+}
+
+.svg-chevron-up {
+    transform: translate(-18px, -175%);
+}
+
+.svg-chevron-down {
+    transform: translate(-18px, 75%);
+}
+
+.svg-add-circle {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translate(85%, -50%);
+}
+
+.svg-arrow-line {
+    position: absolute;
+    right: 0;
+    top: 50%;
+}
+
+.svg-arrow-head-backtrack,
+.svg-arrow-head-commit {
+    position: absolute;
+    left: 0;
+    top: 50%;
+}
+
+.svg-arrow-line > path,
+.svg-arrow-head-backtrack > path {
+    stroke: #000;
+}
+
+.svg-arrow-head-commit > path {
+    stroke: #000;
+    fill: #000;
+}
+
+.chevron-up,
+.chevron-down,
+.arrow-line,
+.arrow-head-backtrack {
+    fill: none;
+}
+
+.add-circle {
+    fill: #fff;
+}

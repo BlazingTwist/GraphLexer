@@ -1,0 +1,28 @@
+/*@formatter:off*/
+.fa-fold-all       {content: url("/AyaWeb/icon/fold-all.svg");                 }
+.fa-unfold-all     {content: url("/AyaWeb/icon/unfold-all.svg");               }
+.fa-bug            {content: url("/AyaWeb/icon/bug.svg");                      }
+.fa-x-mark         {content: url("/AyaWeb/icon/xmark-solid.svg");              }
+/*@formatter:on*/
+
+.fa-sm {
+    height: 18px;
+    width: 18px;
+    color: #ffffff;
+    filter: invert(100%) sepia(0%) saturate(7500%) hue-rotate(146deg) brightness(121%) contrast(121%);
+}
+
+.fa-sm-green {
+    height: 18px;
+    width: 18px;
+    color: #44e122;
+    filter: invert(76%) sepia(56%) saturate(2628%) hue-rotate(58deg) brightness(98%) contrast(93%);
+}
+
+.fa-sm:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.fa-sm:active {
+    background-color: rgba(255, 255, 255, 0.1);
+}

@@ -1,0 +1,43 @@
+.window {
+    position: fixed;
+    min-width: max-content;
+    min-height: max-content;
+    border: 1px solid #666;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.window-drag-handle {
+    user-select: none;
+    background: linear-gradient(0deg, #424242, #717171);
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 0 5px;
+
+    color: white;
+    font-size: 20px;
+    font-family: "JetBrains Mono", monospace;
+    white-space: nowrap;
+}
+
+.window-hidden {
+    display: none;
+}
+
+.window-folded > .window-content {
+    visibility: hidden;
+    height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+.window-content {
+    background-color: rgba(255, 255, 255, 0.5);
+}
