@@ -55,7 +55,7 @@ function EvalError_InvalidInput(node, committedInput) {
  * @property {string} rootNode
  */
 const LangEvaluator = class LangEvaluator {
-    static _maxNoProgressTicks = 100;
+    static _maxNoProgressTicks = 1000;
 
     /**
      * @param {Object.<string, LangTreeNode>} treeNodes
