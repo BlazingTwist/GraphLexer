@@ -230,7 +230,7 @@
             new LangTreeNode(false, new LangNode_State("List"), [
                 new LangTreeNode(false, new LangNode_ApplyTag("List"), [
                     new LangTreeNode(true, new LangNode_MatchLiteral("["), [
-                        new LangTreeNode(true, new LangNode_SubState("Token", {
+                        new LangTreeNode(true, new LangNode_SubState("Token_space", {
                             greedy: false,
                             minRepeat: 0,
                             maxRepeat: undefined
@@ -460,15 +460,17 @@
                     new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
                 ]),
                 new LangTreeNode(false, new LangNode_ApplyTag("SpecialToken"), [
-                    new LangTreeNode(true, new LangNode_MatchRegex("[,`()[]{}#]"), []),
+                    new LangTreeNode(true, new LangNode_MatchRegex("[,`()[\\]{}#]"), []),
                 ]),
                 new LangTreeNode(false, new LangNode_ApplyTag("Operator"), [
                     new LangTreeNode(true, new LangNode_MatchRegex("[^\\s]"), []),
                 ]),
             ]),
             new LangTreeNode(false, new LangNode_State("Token_space"), [
-                new LangTreeNode(true, new LangNode_SubState("Token", undefined), [
-                    new LangTreeNode(true, new LangNode_MatchRegex("\\s*"), []),
+                new LangTreeNode(false, new LangNode_MatchRegex("\\s*"), [
+                    new LangTreeNode(true, new LangNode_SubState("Token", undefined), [
+                        new LangTreeNode(true, new LangNode_MatchRegex("\\s*"), []),
+                    ]),
                 ]),
             ]),
             /*new LangTreeNode(false, new LangNode_State("Program"), [
