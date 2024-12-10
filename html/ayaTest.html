@@ -18,6 +18,7 @@
     <script src="../js/LanguageTester.js"></script>
     <script src="../js/SvgGenerator.js"></script>
     <script src="../js/Templating.js"></script>
+    <script src="../js/TreeHelper.js"></script>
 
     <link rel="stylesheet" href="./../css/icons.css">
     <link rel="stylesheet" href="./../css/language-tester.css">
@@ -66,8 +67,8 @@
         function createGraphHtml(rootNode, nodeHeight) {
             // calculate the maximum width for each column
             let colWidths = [];
-            iterateTreeLayers(rootNode, (i, nodes) => {
-                let width = Math.max(...nodes.map(n => chToPx(n.langNode.contentText().length + 3)));
+            TreeHelper.iterateLayers(rootNode, node => node.transitions.map(x => x.node), layer => {
+                let width = Math.max(...layer.map(n => chToPx(n.langNode.contentText().length + 3)));
                 colWidths.push(width);
             });
 
@@ -197,26 +198,6 @@
          */
         function chToPx(ch) {
             return ch * 12.5;
-        }
-
-        /**
-         * @param {LangNodeMeta} rootNode
-         * @param {function(index: number, node: LangNodeMeta[])} callback
-         */
-        function iterateTreeLayers(rootNode, callback) {
-            let i = 0;
-            /** @type {LangNodeMeta[]} */
-            let nodes = [rootNode];
-            /** @type {LangNodeMeta[]} */
-            let nextNodes = [];
-            while (nodes.length > 0) {
-                callback(i, nodes);
-                for (let node of nodes) {
-                    nextNodes.push(...node.transitions.map(t => t.node));
-                }
-                nodes = nextNodes;
-                nextNodes = [];
-            }
         }
 
         let states = [

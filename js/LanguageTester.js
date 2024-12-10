@@ -30,85 +30,115 @@ const LanguageTester = class LanguageTester {
             let numUnmatched = (evalResult.unmatchedStr || "").length;
             let numMatched = inputStr.length - numUnmatched;
 
-            /** @type {{strIdx: number, opening: boolean, tagIdx: number}[]} */
-            let tagIndices = [];
-            let tagIdx = 0;
-            for (let tag of evalResult.result.tags) {
-                tagIndices.push({strIdx: tag.index, opening: true, tagIdx: tagIdx});
-                tagIndices.push({strIdx: tag.index + tag.len, opening: false, tagIdx: tagIdx});
-                tagIdx++;
-            }
-            tagIndices.sort((a, b) => {
-                if (a.strIdx !== b.strIdx) {
-                    return a.strIdx - b.strIdx;
-                }
-                // always prioritize closing tags
-                if(a.opening !== b.opening) {
-                    return a.opening ? 1 : -1;
-                }
-                // make sure tags are closed in the reverse order they were opened in.
-                return a.opening ? a.tagIdx - b.tagIdx : b.tagIdx - a.tagIdx;
-            });
+            instance.tagsGrid.element.innerHTML = ''; // remove children
+            let formattedTextElement = Templating.html(`<span></span>`);
+            let currentElementStack = [formattedTextElement];
 
-            let formattedMatchInput = "";
-            let curIdx = 0;
-            for (let tagIndex of tagIndices) {
-                if (curIdx < tagIndex.strIdx) {
-                    formattedMatchInput += inputStr.substring(curIdx, tagIndex.strIdx);
-                    curIdx = tagIndex.strIdx;
-                }
-                if (tagIndex.opening) {
-                    formattedMatchInput += `<span id="fmt-match-text-${tagIndex.tagIdx}" class="rainbow-${tagIndex.tagIdx % 11}">`
-                } else {
-                    formattedMatchInput += `</span>`;
+            let curTextPos = 0;
+            let tagIdx = 0;
+            for (let rootTag of evalResult.result.tags) {
+                /** @type {{tag: LangTag, tagIdx: number, isOpen: boolean}[]} */
+                let tagMarkerStack = [{ tag: rootTag, tagIdx: tagIdx, isOpen: false }];
+                tagIdx++;
+                while (tagMarkerStack.length > 0) {
+                    let tagMarker = tagMarkerStack.pop();
+                    if (!tagMarker.isOpen) {
+                        // entering tag
+                        tagMarker.isOpen = true;
+                        tagMarkerStack.push(tagMarker);
+
+                        // push children
+                        for (let i = tagMarker.tag.subTags.length - 1; i >= 0; i--) {
+                            let child = tagMarker.tag.subTags[i];
+                            tagMarkerStack.push({ tag: child, tagIdx: tagIdx, isOpen: false });
+                            tagIdx++;
+                        }
+
+                        // advance text position
+                        let tagTextPos = tagMarker.tag.index;
+                        if (curTextPos < tagTextPos) {
+                            let currentText = currentElementStack[currentElementStack.length - 1];
+                            currentText.child(`<span>${inputStr.substring(curTextPos, tagTextPos)}</span>`);
+                            curTextPos = tagTextPos;
+                        } else if (curTextPos > tagTextPos) {
+                            console.error("received non-sequential opening tag from Evaluator. Invalid Tag tree:");
+                            console.error(rootTag);
+                            throw new Error("Illegal Tag Order");
+                        }
+
+                        // apply tag style
+                        let tagTextElement = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}"></span>`);
+                        currentElementStack[currentElementStack.length - 1].child(tagTextElement);
+                        currentElementStack.push(tagTextElement);
+
+                        // add tag to tagGrid
+                        let tagName = tagMarker.tag.name;
+                        let tagStr = inputStr.substring(tagMarker.tag.index, tagMarker.tag.index + tagMarker.tag.len);
+                        let tagDepth = currentElementStack.length - 2;
+                        let label = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}" style="margin-left: ${tagDepth * 12}px;">${tagName}</span>`);
+                        let strElement = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}">${tagStr}</span>`);
+
+                        const onHoverTag = () => {
+                            tagTextElement.element.classList.add("fmt-text-highlight");
+                            tagTextElement.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }
+                        label.element.addEventListener("pointerover", onHoverTag);
+                        strElement.element.addEventListener("pointerover", onHoverTag);
+
+                        const onHoverTagEnd = () => {
+                            tagTextElement.element.classList.remove("fmt-text-highlight");
+                        }
+                        label.element.addEventListener("pointerout", onHoverTagEnd);
+                        strElement.element.addEventListener("pointerout", onHoverTagEnd);
+
+                        const onHoverText = () => {
+                            label.element.classList.add("fmt-text-highlight");
+                            label.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            strElement.element.classList.add("fmt-text-highlight");
+                        }
+                        tagTextElement.element.addEventListener("pointerover", onHoverText);
+
+                        const onHoverTextEnd = () => {
+                            label.element.classList.remove("fmt-text-highlight");
+                            strElement.element.classList.remove("fmt-text-highlight");
+                        }
+                        tagTextElement.element.addEventListener("pointerout", onHoverTextEnd);
+
+                        instance.tagsGrid.child(label).child(strElement);
+                    } else {
+                        // exiting tag
+
+                        // advance text position
+                        let tagTextPos = tagMarker.tag.index + tagMarker.tag.len;
+                        if (curTextPos < tagTextPos) {
+                            let currentText = currentElementStack[currentElementStack.length - 1];
+                            currentText.child(`<span>${inputStr.substring(curTextPos, tagTextPos)}</span>`);
+                            curTextPos = tagTextPos;
+                        } else if (curTextPos > tagTextPos) {
+                            console.error("received non-sequential closing tag from Evaluator. Invalid Tag tree:");
+                            console.error(rootTag);
+                            throw new Error("Illegal Tag Order");
+                        }
+
+                        // apply tag style
+                        currentElementStack.pop();
+                    }
                 }
             }
-            if (curIdx < numMatched) {
-                formattedMatchInput += inputStr.substring(curIdx, numMatched);
+            if (curTextPos < numMatched) {
+                let currentText = currentElementStack[currentElementStack.length - 1];
+                currentText.child(`<span>${inputStr.substring(curTextPos, numMatched)}</span>`);
+            }
+
+            if(currentElementStack.length !== 1) {
+                console.error("CurrentElementStack is in an illegal state:");
+                console.error(currentElementStack);
+                throw new Error("either closed to few or too many tags");
             }
 
             instance.matchCharOutput.element.innerHTML = `${numMatched} / ${inputStr.length} chars in ${endTime - startTime} ms`;
-            instance.matchOutput.element.innerHTML = formattedMatchInput;
-
-            instance.tagsGrid.element.innerHTML = ''; // remove children
-            tagIdx = 0;
-            for (let tag of evalResult.result.tags) {
-                let tagName = tag.name;
-                let tagStr = inputStr.substring(tag.index, tag.index + tag.len);
-                let label = Templating.html(`<span class="rainbow-${tagIdx % 11}">${tagName}</span>`);
-                let strElement = Templating.html(`<span class="rainbow-${tagIdx % 11}">${tagStr}</span>`);
-
-                const fmtElement = document.getElementById(`fmt-match-text-${tagIdx}`);
-
-                const onHoverTag = () => {
-                    fmtElement.classList.add("fmt-text-highlight");
-                    fmtElement.scrollIntoView({behavior: "smooth", block: "center"});
-                }
-                label.element.addEventListener("pointerover", onHoverTag);
-                strElement.element.addEventListener("pointerover", onHoverTag);
-
-                const onHoverTagEnd = () => {
-                    fmtElement.classList.remove("fmt-text-highlight");
-                }
-                label.element.addEventListener("pointerout", onHoverTagEnd);
-                strElement.element.addEventListener("pointerout", onHoverTagEnd);
-
-                const onHoverText = () => {
-                    label.element.classList.add("fmt-text-highlight");
-                    label.element.scrollIntoView({behavior: "smooth", block: "center"});
-                    strElement.element.classList.add("fmt-text-highlight");
-                }
-                fmtElement.addEventListener("pointerover", onHoverText);
-
-                const onHoverTextEnd = () => {
-                    label.element.classList.remove("fmt-text-highlight");
-                    strElement.element.classList.remove("fmt-text-highlight");
-                }
-                fmtElement.addEventListener("pointerout", onHoverTextEnd);
-
-                instance.tagsGrid.child(label).child(strElement);
-                tagIdx++;
-            }
+            instance.matchOutput.element.innerHTML = '';
+            instance.matchOutput.child(formattedTextElement);
 
             instance.unmatchedCharOutput.element.innerHTML = `${numUnmatched} chars`;
             instance.unmatchedOutput.element.value = evalResult.unmatchedStr || "";

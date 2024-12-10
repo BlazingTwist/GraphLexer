@@ -18,7 +18,18 @@
  * @property {string} name
  * @property {number} index
  * @property {number} len
+ * @property {LangTag[]} subTags
  */
+/**
+ * @param {string} name
+ * @param {number} index
+ * @param {number} len
+ * @param {LangTag[] | undefined} subTags
+ * @returns {LangTag}
+ */
+function newLangTag(name, index, len, subTags) {
+    return { name: name, index: index, len: len, subTags: (subTags === undefined ? [] : subTags ) };
+}
 
 /**
  * @param {string} message
@@ -99,7 +110,7 @@ const LangEvaluator = class LangEvaluator {
             }
 
             result.result.len += subResult.len;
-            subResult.tags.forEach(tag => tag.index += posOffset);
+            subResult.tags.map(tag => TreeHelper.iteratePreorder(tag, x => x.subTags, x => x.index += posOffset));
             result.result.tags.push(...subResult.tags);
 
             remainStr = remainStr.substring(subResult.len);
@@ -148,7 +159,7 @@ const LangEvaluator = class LangEvaluator {
                 throw err;
             }
             if (tRes !== undefined) {
-                tRes.tags.push({name: lNode.tagName, index: pos, len: tRes.len});
+                tRes.tags = [newLangTag(lNode.tagName, pos, tRes.len, tRes.tags)];
             }
             return tRes;
         } else if (node.node.nodeType() === NodeTypes.subState) {
@@ -171,7 +182,7 @@ const LangEvaluator = class LangEvaluator {
                     let tRes = this._transitionsMatch(input, pos + matchLength, node);
                     if (tRes !== undefined) {
                         tRes.len += matchLength;
-                        tRes.tags.push(...matchTags);
+                        tRes.tags.splice(0, 0, ...matchTags);
                         return tRes;
                     }
                     // ignore case when transitions do not accept, first try matching the subState again.
@@ -219,7 +230,7 @@ const LangEvaluator = class LangEvaluator {
                     }
 
                     tRes.len += matchLength;
-                    tRes.tags.push(...matchTags);
+                    tRes.tags.splice(0, 0, ...matchTags);
                     return tRes;
                 }
 
