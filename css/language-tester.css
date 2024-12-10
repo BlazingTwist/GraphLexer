@@ -46,17 +46,6 @@
 .rainbow-10{ background-color: #FFCCFF; }
 /*@formatter:on*/
 
-.rainbow-0:hover, .rainbow-0:hover + .rainbow-0, .rainbow-0:has(+ .rainbow-0:hover),
-.rainbow-1:hover, .rainbow-1:hover + .rainbow-1, .rainbow-1:has(+ .rainbow-1:hover),
-.rainbow-2:hover, .rainbow-2:hover + .rainbow-2, .rainbow-2:has(+ .rainbow-2:hover),
-.rainbow-3:hover, .rainbow-3:hover + .rainbow-3, .rainbow-3:has(+ .rainbow-3:hover),
-.rainbow-4:hover, .rainbow-4:hover + .rainbow-4, .rainbow-4:has(+ .rainbow-4:hover),
-.rainbow-5:hover, .rainbow-5:hover + .rainbow-5, .rainbow-5:has(+ .rainbow-5:hover),
-.rainbow-6:hover, .rainbow-6:hover + .rainbow-6, .rainbow-6:has(+ .rainbow-6:hover),
-.rainbow-7:hover, .rainbow-7:hover + .rainbow-7, .rainbow-7:has(+ .rainbow-7:hover),
-.rainbow-8:hover, .rainbow-8:hover + .rainbow-8, .rainbow-8:has(+ .rainbow-8:hover),
-.rainbow-9:hover, .rainbow-9:hover + .rainbow-9, .rainbow-9:has(+ .rainbow-9:hover),
-.rainbow-10:hover, .rainbow-10:hover + .rainbow-10, .rainbow-10:has(+ .rainbow-10:hover),
 .fmt-text-highlight, .fmt-text-highlight * {
     background-color: dodgerblue !important;
 }

@@ -66,8 +66,10 @@ const LanguageTester = class LanguageTester {
                             throw new Error("Illegal Tag Order");
                         }
 
+                        let rainbowIdx = tagMarker.tagIdx % 11;
+
                         // apply tag style
-                        let tagTextElement = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}"></span>`);
+                        let tagTextElement = Templating.html(`<span class="rainbow-${rainbowIdx}"></span>`);
                         currentElementStack[currentElementStack.length - 1].child(tagTextElement);
                         currentElementStack.push(tagTextElement);
 
@@ -75,34 +77,35 @@ const LanguageTester = class LanguageTester {
                         let tagName = tagMarker.tag.name;
                         let tagStr = inputStr.substring(tagMarker.tag.index, tagMarker.tag.index + tagMarker.tag.len);
                         let tagDepth = currentElementStack.length - 2;
-                        let label = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}" style="margin-left: ${tagDepth * 12}px;">${tagName}</span>`);
-                        let strElement = Templating.html(`<span class="rainbow-${tagMarker.tagIdx % 11}">${tagStr}</span>`);
+                        let label = Templating.html(`<span class="rainbow-${rainbowIdx}" style="margin-left: ${tagDepth * 12}px;">${tagName}</span>`);
+                        let strElement = Templating.html(`<span class="rainbow-${rainbowIdx}">${tagStr}</span>`);
 
-                        const onHoverTag = () => {
+                        /** @type {function(PointerEvent)} */
+                        const onHoverTag = (e) => {
+                            console.log("target: ");
+                            console.log(e.target);
+                            e.stopPropagation();
+                            label.element.classList.add("fmt-text-highlight");
+                            strElement.element.classList.add("fmt-text-highlight");
                             tagTextElement.element.classList.add("fmt-text-highlight");
-                            tagTextElement.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            if(e.target === label.element || e.target === strElement.element) {
+                                tagTextElement.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }else{
+                                label.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }
                         }
                         label.element.addEventListener("pointerover", onHoverTag);
                         strElement.element.addEventListener("pointerover", onHoverTag);
+                        tagTextElement.element.addEventListener("pointerover", onHoverTag);
 
                         const onHoverTagEnd = () => {
+                            label.element.classList.remove("fmt-text-highlight");
+                            strElement.element.classList.remove("fmt-text-highlight");
                             tagTextElement.element.classList.remove("fmt-text-highlight");
                         }
                         label.element.addEventListener("pointerout", onHoverTagEnd);
                         strElement.element.addEventListener("pointerout", onHoverTagEnd);
-
-                        const onHoverText = () => {
-                            label.element.classList.add("fmt-text-highlight");
-                            label.element.scrollIntoView({ behavior: "smooth", block: "center" });
-                            strElement.element.classList.add("fmt-text-highlight");
-                        }
-                        tagTextElement.element.addEventListener("pointerover", onHoverText);
-
-                        const onHoverTextEnd = () => {
-                            label.element.classList.remove("fmt-text-highlight");
-                            strElement.element.classList.remove("fmt-text-highlight");
-                        }
-                        tagTextElement.element.addEventListener("pointerout", onHoverTextEnd);
+                        tagTextElement.element.addEventListener("pointerout", onHoverTagEnd);
 
                         instance.tagsGrid.child(label).child(strElement);
                     } else {
