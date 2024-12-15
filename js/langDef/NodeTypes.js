@@ -3,10 +3,10 @@
  * @enum {string}
  */
 const NodeTypes = {
-    state: "state",
-    matchLiteral: "matchLiteral",
-    matchUnicode: "matchUnicode",
-    matchRegex: "matchRegex",
-    subState: "subState",
-    applyTag: "applyTag",
+    state: "State",
+    matchLiteral: "MatchLiteral",
+    matchUnicode: "MatchUnicode",
+    matchRegex: "MatchRegex",
+    subState: "SubState",
+    applyTag: "ApplyTag",
 }

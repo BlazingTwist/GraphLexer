@@ -1,0 +1,8649 @@
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+
+.# __aya__
+.# Defines the __aya__ namespace and keywords
+
+.# NOTE: 12 letter variables ending in the letter 'z' are reserved for use in
+.#       standard library. Such variables are used below.
+
+{:{sys.ad} "test/test.aya" + :F}:tt;
+
+.# Global __aya__ table
+{,
+
+    {,}:interpreter;
+
+    .# If set to 1, all breakpoints will be ignored
+    .#? __aya__.ignore_breakpoints\n  if true, skip all breakpoints
+    0 :ignore_breakpoints;
+
+}:__aya__;
+
+{,
+    {, 
+        ::__nil :__type__;
+        "nil" :__str__;
+        "nil" :__repr__'
+        1 :__pushself__;
+        {:T ::__nil =}:__eq__;
+    }:__meta__;
+}:nil;
+
+.#######################################
+.# DEFINE __aya__ KEYWORDS AND GLOBALS #
+.#######################################
+
+.# -----
+.# DEBUG
+.# -----
+
+.#? bp\n  set a breakpoint
+{ : __aya__^,
+    __aya__.ignore_breakpoints ! {
+        :{debug.pause}
+    } ?
+}:bp;
+
+
+.# Hold operator (same as `)
+.# 1 `+ 1
+.# 1 (1 hold)+ 1
+.# ``+ 1 1
+.# (2 hold)+ 1 1
+{__hold_n, {__hold_f : __hold_n^, {:__hold_f^, {~} O ~ __hold_f} __hold_n :` } 0 :` }:hold;
+
+.# ----
+.# LOAD
+.# ----
+
+.#? load S\n  Load a script
+{{~".aya"+:F} 0 :`}:load;
+
+
+.# -------
+.# EXAMPLE
+.# -------
+
+{name,
+    [:{sys.ad} :9s "examples" :9s name ".aya"] W :F
+}:example;
+
+
+
+.# -------
+.# OPT_MOD
+.# -------
+
+.{
+    Macro for creating a macro which runs a different block
+    depending on whether or not a module is present as an argument
+
+    .# Example:
+
+    opt_mod (
+        {block name mod,
+            "with_mod!" :P [block.` name mod]
+        }
+
+        {block name,
+            "no mod!":P [block.` name]
+        }
+    )
+
+    aya> f {,} ::foo {"a"}
+    with_mod!
+    [ {"a"} ::foo {,} ]
+
+    aya> f ::foo {"a"}
+    no mod!
+    [ {"a"} ::foo ]
+.}
+
+{with_mod no_mod,
+
+    {:with_mod no_mod,
+
+        .# Use constant substitution until var^ syntax is introduced
+        _with_mod:with_mod;
+        _no_mod:no_mod;
+
+        .# Store functions on stack so they can be retrieved later
+        {,
+            no_mod.` :no_mod
+            with_mod.` :with_mod
+        }
+
+        (3 hold)(
+            .# Variable argument prefix operator
+            .# aya> {mod name block, mod ::_fn =! {;} ? [mod name block.`]} :f
+
+            .# Jump ahead 3 items
+            .# aya> (```(\:&:T ::sym=! {\`}{\}.? f) ::_fn)   {,} ::foo {+}
+            .# [ {,} ::foo {+} ]
+
+            .# Jump ahead 2 items
+            .# aya> (```(\:&:T ::sym=! {\`}{\}.? f) ::_fn)   ::foo {+}
+            .# [ ::_fn ::foo {+} ]
+
+            \:&:T ::sym=! {\(1 hold)}{\}.?
+
+
+            ( {mod name obj : is_module with_mod no_mod,
+
+                .# True if this function is being defined in a module
+                .# fn foo::bar {...}
+                .# False if defined in outer scope
+                .# fn ::bar {...}
+                mod ::_opt_mod =! :is_module;
+
+                .# If a module was provided, remove the ::_opt_mod symbol from the stack
+                is_module {;} ?
+
+                W .# Capture with_mod and no_mod from outer dict
+
+                .# Quote obj in case it is a block
+                is_module {
+                    obj.` name mod with_mod
+                } {
+                    obj.` name no_mod
+                }
+                .?
+            } )
+
+        )
+        ::_opt_mod
+    }
+
+    .# Use constant substitution until var^ syntax is introduced
+    {, no_mod.`:_no_mod with_mod.`:_with_mod} .+
+
+} __aya__.:opt_mod;
+
+
+.# -----
+.#  DEF
+.# -----
+
+
+.{
+    `def` macro
+    Universal verbose syntax for defining functions
+
+    Define a function in the current scope:
+
+        aya> def ::double {2*}
+        aya> 3 double
+        6
+
+    Define a function in a module scope:
+
+        aya> {,}:math;
+        aya> def math::sq {2^}
+        aya> 5 math.sq
+        25
+
+    Define a function in a class/struct scope:
+
+        aya> struct point {x y}
+        aya> def point::sum {self, self.x self.y +}
+        aya> 2 3 point! :p
+        ( 2 3 ) point!
+        aya> p.sum
+        5
+
+    Define a function in a submodule:
+
+        aya> {, {,}:stats; }:math;
+        aya> def (math.stats)::mean {.E\W\/}
+        aya> [1 2 3 4] math.stats.mean
+        2.5
+.}
+
+(
+    {block name mod,
+        block.` name mod :D ;
+    }
+    {block name,
+        block.` name := ;
+    }
+) __aya__.opt_mod :def;
+
+
+.# ----------------
+.#  CLASS / STRUCT
+.# ----------------
+
+
+.#
+.# `objcet`: Base object for class and struct
+.#
+{,
+    {meta : instance,
+        {,
+            meta :__meta__;
+            1 :__pushself__;
+        } :instance;
+
+        .# If it has a constructor call it
+        instance ::__init__ H {
+            instance.__init__
+        } ?
+
+        .# return the new object
+        instance
+    }:__new__;
+
+
+    {self,
+        "($(self.__type__:C) 0x$(self M# 10 16 .&))"
+    }:__repr__;
+
+    ::object:__type__;
+    0 :__pushself__;
+
+} __aya__.:object;
+
+
+.#
+.# `extend`: Keyword for extending a class
+.#
+
+{type::sym super,
+    {,
+        super:__meta__;
+        type:__type__;
+        .# copy new from super directly
+        super.__new__.` :__new__;
+        0:__pushself__;
+    } type :=
+} __aya__.:extend;
+
+__aya__.extend.` :extend;
+
+
+.#
+.# `class`: Macro keyword for creating a default class that extends `object`
+.#
+
+{: extend^ object(__aya__.object),
+    {:extend^ object^, ~:S~ object extend;} 1 :`
+}:class;
+
+
+.#
+.# `super`: Macro keyword for accessing super variables
+.#
+
+{{
+    ~:S~
+    \:&.__meta__.__meta__@ :I\; ~
+} 1 :` }:super;
+
+
+.#
+.# `struct`: Macro keyword for creating dataclasses
+.#
+
+{type__::sym members__::list super__ :
+    extend__(extend.`)
+    cls__,
+
+    type__ super__ extend__ : cls__;
+
+    .# __init__
+    {self,
+        .# grab all members from the stack
+        num_members :A
+        .# and assign them to self
+        members {self :D} .&;
+    } {,
+        members__ E :num_members;
+        members__   :members;
+    } .+ cls__.:__init__;
+
+    .# __str__/__repr__
+    .# default string:
+    .# ( m1 m2 ... mN ) type!
+    {self,
+        "( "
+        members :# {self \:I \;} " " % +
+        " ) " +
+        name  +
+        "!"+
+    } {,
+        type__ :C   :name;
+        members__ :members;
+    } .+ cls__.:__str__;
+
+    cls__.__str__.` cls__.:__repr__;
+
+    cls__
+} __aya__.:_struct_impl;
+
+{ : _struct_impl(__aya__._struct_impl.`) object(__aya__.object),
+    { : _struct_impl^ , :&.[0]:S~ \.[1]~.*:#{:S~} object _struct_impl } 2 :`
+}:struct;
+
+
+.# ------
+.# MODULE
+.# ------
+
+.#? module sym\n  declare a new module
+{name::sym,
+    {,
+        name :__modname__;
+
+        {meta,
+            "Cannot create new instance of module $(meta.__modname__:C)" .D
+        } :__new__;
+
+        {,
+            ::module :__type__;
+            "(module $name)":__repr__;
+        }:__meta__;
+    }
+    name := ; .# assign variable
+} __aya__.:_module_impl;
+
+
+{ : _module_impl(__aya__._module_impl.`),
+    { : _module_impl^ , ~:S~ _module_impl} 1 :`
+}:module;
+
+
+.###########
+.# CONTROL #
+.###########
+
+
+.#? if (B) E E\n  if statement:\n  if (bool value) {\n    then\n  } {\n    else\n  }
+{(3 hold).?}:if;
+
+
+.#? dowhile E E\n  evaluates E1 as long as E2 is true\n  always evaluates at least once
+{(2 hold)({condition__ loop__,
+    {loop__ condition__} W
+})}:dowhile;
+
+
+.#? while E E\n  evaluates E1 as long as E2 is true
+{(2 hold)({condition__ loop__,
+    condition__ {
+        {loop__ condition__} W
+    } ?
+})}:while;
+
+.#? A print\n  convert to string a print to console
+{.P}:print;
+
+
+.#? A println\n  convert to string and print to console on its own line
+{:P}:println;
+
+
+.{ Example:
+    aya> with {"foo" file.dummyfile!} ::f {"File name is $(f.name)" :P}
+    opened dummy file 'foo'
+    File name is foo
+    closed dummy file 'foo'
+    aya> with {"foo" file.dummyfile!} ::f {"File name is $(f.name)" :P "Some error!".D }
+    opened dummy file 'foo'
+    File name is foo
+    closed dummy file 'foo'
+    Some error!
+    stack:
+
+    just before:
+            {::f .Z .close} ~
+.}
+{(3 hold)(__aya__.with_ ~)}:with;
+
+
+.#? ::any ::sym isa\n  returns true if the item's type matches the input
+{item::any type::sym,
+   type ::any = {
+       1
+   } {
+       item type :@
+   } .?
+}:isa;
+
+
+.# Helper function for `with` keyword which generates wrapper code
+.{
+    with {"foo.txt" file!} ::f {
+      f.lines #:P
+    }
+{init::block var::sym code::block: try catch close,
+    {init~ var := ; code~}.use[::init ::code ::var] :try ;
+    {var.Z .close .D}.use[::var] :catch ;
+    {var.Z .close}.use[::var] :close ;
+    {try catch .K close~}.use[::try ::catch ::close]
+    .setlocals[var]
+}__aya__.:with_;
+.}
+
+
+.################
+.# import types #
+.################
+
+[
+    "test"
+    .# Type extensions
+    "num"
+    "char"
+    "list"
+    "str"
+    "block"
+    "sym"
+
+    .# required libraries
+    "importlib"
+
+    .# Interpreter commands
+    "interpreter"
+
+] :# {f,
+    .# "Loading base/$f..." :P
+    load ([:{sys.ad} :9s "base/$f"]W)
+};
+{,
+
+    .# Functional Operations
+    .########################
+
+    .#? ::list ::list ::block.pu\n  (permusing) permutes elements of two lists and applies an expression to each
+    .{ Example:
+        aya> "AB" "ab" {P+}.pu
+        [["Aa" "Ab"]["Ba" "Bb"]]
+        aya> [1 2 3][4 5 6] {P+}.pu
+        [[4 5 6][8 10 12][12 15 18]]
+    .}
+    {la lb ex, [lb la lbEL,\#{ex}]}:pu;
+
+
+    .#? ::list ::block.tw\n  (takewhile) take from list while the condition is satisfied
+    .{ Example:
+        aya> 10R {5<}.tw
+        [ 1 2 3 4 ]
+    .}
+    {e,{e!}.N $0= {;;[]} {S~;} .? }:tw;
+
+
+    .#? ::any ::list ::block.el\n  apply block to `any` and `i` for each element across list
+    .{ Example:
+        aya> "a" ["A" "B" "C"] {+}.el
+        ["aA" "aB" "aC"]
+    .}
+    {@@.E@\L\@.&}:el;
+
+
+    .#? ::list ::any ::block.le\n  apply block to `any` and `i` for each element across list
+    .{ Example:
+        aya> ["A" "B" "C"] "a" {+}.le
+        ["Aa" "Ba" "Ca"]
+    .}
+    {@@\.E@\L@.&}:le;
+
+
+    .#? ::block.haslocals\n  return true if the block has a local variables
+    .# Both the args and the locals mush be empty for this to be false
+    {.| :&.locals:E \.argsE + 0 =!}:haslocals;
+
+
+    .#? ::block.locals\n  get the locals of a block\n  will throw error if block does not have locals
+    {.|.locals}:locals;
+
+
+    .#? ::block.args\n  get an ordered list of argument descriptions to the block\n  empty list if there are none
+    {.|.args}:args;
+
+    .#? ::block .use ::list\n  evaulate the variables (given by a list of symbols) in the block in the current scope
+    .{ Example:
+        aya> 2:y
+        2
+        aya> {x, x y *}.use[::y] :double
+        {x , x 2 * }
+        aya> 3 double
+        6
+    .}
+    {(1 hold)({:d__,
+        .# Create a dictionary of all values given by the list
+        {,}:d__;
+        :#{$~\d__:D;};
+        .# Substitute the values from the dictionary into the block
+        d__ .+
+    })}:use;
+
+    .#? ::block .time\n  return the result of the block and the execution time in ms
+    {:a__, M$:a__; ~ M$ a__ -} :time;
+
+    .# Utility Functions
+    .#####################
+
+
+    .# ::list _capture_vars\n  given a list of symbols, return a dict with each symbol and it's assignment
+    .{ Example:
+        aya> {1 +}:a 2:b
+        {1 +} 2
+        aya> [::a ::b].capture_vars
+        {,
+          {1 +}:a;
+          2:b;
+        }
+        aya> [::a ::b ::c].capture_vars
+        ERROR: Variable c not found
+    .}
+    { {1, :# {$~\:=} } }:_capture_vars;
+
+
+    .#? ::block .op\n  return the block (allows use of (::sym or ::block) .op without type checking
+    {}:op;
+
+}
+.# Merge with char metatable
+{} .M \.+
+
+.# Define operators
+{.le}:otimes;
+{.el}:odot;
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Metatable definition for the built-in `char` type
+
+{,
+    .#? C.islower\n  tests if a character is lowercase
+    {$ 'a :> \ 'z :< &}:islower;
+
+    .#? C.isupper\n  tests if a character is uppercase
+    {$ 'A :> \ 'Z :< &}:isupper;
+
+    .#? C.toupper\n  converts a character to uppercase
+    {$.isupper! {!} ? }:upper;
+
+    .#? C.tolower\n  converts a character to lowercase
+    {$.islower! {!} ? }:lower;
+
+    .#? C.isdigit\n  tests if a character is a digit
+    {$ '0 :> \ '9 :< &}:isdigit;
+
+    .#? C.iswhitespace\n  tests if a character is a whitespace character
+    { " \f\n\r\t\v\{x00A0}\{x2028}\{x2029}" \ H}:iswhitespace;
+
+    .#? C.isascii\n  test if character is ascii
+    {:' 127 <}:isascii;
+
+    .#? C.isalpha\n  test if character is alphabetical
+    {$ $ 'a :> \ 'z :< & \ $ 'A :> \ 'Z :< & |}:isalpha;
+
+    .#? ::str ::char .split_keep\n  split the string at the char, keep the char in the leading string
+    {s c,
+        s c S #{c+} 
+
+        .# If c is not the last char of s,
+        .# remove c from the last item of the list
+        s.[-1]c=! {
+            :&.[-1]B;\.:[-1]
+        } ? 
+        
+    }:split_keep;
+}
+.# Merge with char metatable
+'x .M \.+
+module importlib
+
+def importlib::_debug 0
+
+def importlib::_log_debug {:importlib^,
+     importlib._debug {"importlib: " \+ :P} {;} .?
+}
+
+def importlib::aya_dir :{sys.ad}
+
+.# Dictionary of files which have been imported
+def importlib::imported {,}
+
+def importlib::path [
+    importlib.aya_dir "std" :9s + +    .# <aya>/base
+]
+
+.# Return the path with the current directory at the bottom
+def importlib::get_path { : importlib^ ,
+    importlib.path
+    :{sys.wd}
+    J
+}
+
+.# Return a dictionary with the file loaded in it
+.# If the file is already loaded, return the item from the dict
+def importlib::load_file {filename : importlib^,
+    "$filename importlib::load_file" importlib._log_debug
+    importlib.imported filename H {
+        .# Return from the cache
+        "Loading file $filename from cache" importlib._log_debug
+        importlib.imported.[filename]
+    } {
+        { .# try
+            "Attempting to open file $filename..." importlib._log_debug
+            .# Load the file into a dict scope
+            {,
+                .# If __main__ exists and is 0, `main` will discard its block
+                .# Otherwise it will execute it
+                0:__main__;
+                .# The filename of the file being loaded
+                filename :__file__;
+                .# 1: export all
+                .# 0: left in default state
+                .# []: export nothing
+                .# [syms...] export given names
+                0:__export__;
+                filename :F
+            } :& importlib.imported.:[filename];
+            "Loaded file $filename" importlib._log_debug
+        } {e,
+            "Error importing '$filename':\n\t$e" .D
+        } .K
+    } .?
+}
+
+
+.# A file is main if `__main__` is undefined or not 0
+def importlib::is_main {
+    { .# try
+        __main__ 0 =!
+    } {;
+        1
+    } .K
+}
+
+.{
+    ::foo => "foo"
+    "foo" => "foo"
+    "foo.bar" => "foo/bar"
+    "foo/bar" => "foo/bar"
+.}
+def importlib::to_path_str {s,
+    s :C "\." "/" .& ".aya" +
+}
+
+.# Import from path
+.{
+    import "foo"
+
+    Use __* variables so exported variables are not shadowed
+.}
+def importlib::from_path {__file : importlib^ __mod,
+    "$__file importlib::from_path" importlib._log_debug
+
+    __file importlib.to_path_str importlib.from_file :__mod;
+
+    __file __mod importlib.do_export
+}
+
+.{
+    Export variables from a module
+    If symbols are defined in the module's __export__ variable,
+        only export those ones,
+    If __export__ is the value 1, export all variables from the module
+    If __export__ does not exist but the import name was a symbol,
+        export the entire module as the name of the symbol
+
+.}
+def importlib::do_export {__importname __module : importlib^,
+    "$__importname <module> importlib::export" importlib._log_debug
+    "  export: $(__module.__export__)" importlib._log_debug
+    {
+        (__module ::__export__ H!) {
+            "__export__ not found in module $__importname. Was it deleted?" .D
+        } (__module.__export__ 1 =) {
+                "Exporting all variables from $__importname..." importlib._log_debug
+                .# Introduce scope to catch any names we never want to export
+                ({: __export__ __main__ __file__,
+                    __module W
+                })
+        } (__module.__export__ 0 =) {
+            (__importname :T ::sym =) {
+                "Exporting entire module as import name: $__importname" importlib._log_debug
+                __module __importname :=;
+            } {
+                "Export in default state but import is not a symbol, not exporting anything" importlib._log_debug
+            } .?
+        } (__module.__export__ :T ::list =) {
+            "Exporting variables from $__importname" importlib._log_debug
+            __module.__export__ :# {var,
+                "  exporting $var..." importlib._log_debug
+                __module var I var :=;
+            };
+        } {
+            "Invalid value for __export__ when importing $__importname: $(__module.__export__)" .D
+        }
+    } :?
+}
+
+.{
+    Directly append the file to each of the paths and attempt to load
+    Example input:
+    filepath: ("foo.aya", "bar/baz.aya", "/Users/user/foo.aya")
+.}
+def importlib::from_file {filepath : importlib^ all_possible mod,
+    "$filepath importlib::from_file" importlib._log_debug
+
+    importlib.get_path :# { filepath + } :~ :all_possible
+    .# Get only files that exist
+    { :{sys.file_exists} } I
+    .# If the lists is empty, throw an error
+    .E 0 = {"Import Error: Unable to find any of the following files: $all_possible" .D} ?
+
+    .# Returns a dict containing the imported content
+    .[0] importlib.load_file
+}
+
+.{
+    name may be any of the following:
+    ::foo (symbol)
+    "foo" (single item)
+    "foo bar" (whitespace seperated)
+    "foo\nbar" (whitespace seperated)
+    [::foo ::bar] (list of symbols)
+    ["foo" "bar"]  (list of strings)
+    "foo.baz" (file baz in dir foo)
+
+    Use __* variables so exported variables are not shadowed
+.}
+def importlib::import {__name : importlib^,
+    {
+        (__name :T ::sym =) {
+            __name importlib.from_path
+        } (__name :T ::str =) {
+            { .# Determine load command based on string type
+                (__name ".aya" H) {
+                    __name importlib.from_file
+                } (__name.[0] '/ =) {
+                    __name importlib.load_file
+                } {
+                    __name importlib.from_path
+                }
+            } :?
+        } (__name :T ::list =) {
+            __name :# {importlib.import} ;
+        } {
+            "Bad name type: $__name" .D
+        }
+    } :?
+}
+
+
+
+def importlib::is_exportall {
+    { .# try
+        __export__ 1 =
+    } {;
+        0
+    } .K
+}
+
+def importlib::export {vars : importlib^,
+    .# Only make any changes if not exporting all already
+    importlib.is_exportall ! {
+        .# Get the currently exported
+        {__export__;} {e, []:__export__;} .K
+        .# If exported is default (0), set it to a list
+        __export__ 0 = {[]:__export__;} ?
+        .# Add new exported
+        {
+            (vars 1 =) {
+                1 :__export__;
+            } (vars :T ::sym =) {
+                vars __export__ .B ;
+            } (vars :T ::list =) {
+                vars __export__ J :__export__;
+            } {
+                "export error: cannot export $vars" .D
+            }
+        } :?
+    } ?
+}
+
+.# Import certain symbols from a module
+def importlib::from {mod_sym import_vars : meta_mod importlib^,
+    "$mod_sym $import_vars importlib.from" importlib._log_debug
+    "from: Capturing all imported vars..." importlib._log_debug
+    {,
+        mod_sym importlib.import
+    }:meta_mod;
+
+    import_vars :T ::sym = {[import_vars]:import_vars;} ?
+
+    "from: exporting variables..." importlib._log_debug
+    import_vars :# {var,
+        { .# try
+            .# Export the variable from the imported module
+            meta_mod.[mod_sym].[var] var := ;
+            "from:   exporting '$var'..." importlib._log_debug
+        } {
+            { .# try
+                .# The variable was exported into the meta module and
+                .# does not exist in the inner module
+                meta_mod.[var] var := ;
+            } {
+                "Import Error: $var does not exist in module $mod_sym" .D
+            } .K
+        } .K
+    };
+}
+
+importlib __aya__.:importlib;
+
+.# If provided a 0 (for example from `from` keyword), do nothing
+{(1 hold)(:& 0= {;} {__aya__.importlib.import} .?)}:import;
+
+{: importlib^ , {,} importlib.:imported; } :reimport;
+
+{(1 hold)(__aya__.importlib.export)}:export;
+{1:__export__;} :exportall;
+
+.# from ::math import [::sin ::cos]
+.# from ::io import ::path
+{
+    {:&.[0]~ \.[-1]~ __aya__.importlib.from} 3 :` 
+}:from;
+
+.# main {do stuff...}
+.# Do not execute this block if the file it is contained in
+.# is being imported as a module
+{(1 hold)(
+    __aya__.importlib.is_main {~} {;} .?
+)}:main;
+.# Defines \t interpreter flag
+
+{
+    .# Create a block from the input and time the execution
+    .~ .time
+    .# Print the results of the block
+    .AB\ #{.P" ".P}; "":P
+    .# Print execution time message
+    "Execution took "\+" ms"+:P
+
+} __aya__.interpreter.:t
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Metatable definition for the built-in `list` type
+
+{,
+    .# Querying
+    .###############
+
+    .#? ::any ::list .in\n  tests whether or not item is in the list
+    {\H}:in;
+
+    .#? ::list .max\n  max value of a list
+    {{.<}%}:max;
+
+    .#? ::list .min\n  min value of a list
+    {{.>}%}:min;
+
+    .#? ::list .argmax\n  return the index of the largest value in the list
+    {$.maxN\;}:argmax;
+
+    .#? ::list .argmin\n  return the index of the smallest value in the list
+    {$.minN\;}:argmin;
+
+    .#? ::list ::list .i\n  index using mask
+    {.ER*{0=!}I1#- .E0={;;[]} {.E@@I\ 1={A}?} .?}:i;
+
+    .#? ::list ::list.mask\n  select indices with non-false values from list
+    .{
+        aya> [1 2 3 4 5] [0 1 0 0 1].mask
+        [ 2 5 ]
+    .}
+    {a b,
+        aE bE = {
+            a b .E R * .[{0=!}] 1- I
+        } {
+            "::list.mask: both lists must be the same length" .D
+        } .?
+    }:mask;
+
+    .#? ::list.alleq\n  return true if all items in the list are the same
+    {:~E1:<}:alleq;
+
+    .#? ::list .allt\n  true if all elements in list are true
+    {{&}%}:allt;
+
+    .#? ::list .allf\n  true if all elements in list are false
+    {{|}%!}:allf;
+
+    .# Convenience functions for using a list as a vector
+    {.[0]}:x;
+    {.[1]}:y;
+    {.[2]}:z;
+    {.:[0]}:setx;
+    {.:[1]}:sety;
+    {.:[2]}:setz;
+
+
+    .# Manipulation
+    .###############
+
+
+    .#? ::any ::list .append\n  add item to end of list
+    {.B}:append;
+
+    .#? ::list .pop\n  remove item from end of list
+    {B}:pop;
+
+    .#? ::list .roll\n  move the last element to the front
+    {B\.V}:roll;
+
+    .#? ::num ::list .rotate\n  shift items in list up N times wrappping the items around
+    .{ Example:
+        aya> 1 [1 2 3 4].rotate
+        [ 4 1 2 3 ]
+        aya> 2 [1 2 3 4].rotate
+        [ 3 4 1 2 ]
+        aya> -1 [1 2 3 4].rotate
+        [ 2 3 4 1 ]
+    .}
+    {
+        .E@-        .# inverse so rotate in correct direction 2 5R => 3
+        \.E@\:%     .# force bounds: n % length
+        S ~ \ :J    .# Split, swap, and rejoin
+    }:rotate;
+
+
+    .#? ::num ::num ::list .swap\n  swap two elements in a list given their indices
+    {i::num j::num l::list: tmp,
+        l i I : tmp;
+        l j I  l i D;
+        tmp l j D
+    }:swap;
+
+
+    .#? ::list .shuffle\n  shuffle a list
+    {{;.Q}.C}:shuffle;
+
+
+    .#? ::list .makesquare\n  make all lists in the given 2d lists the same length
+    {list,
+        list$ #E {.<} %
+        #.<
+    }:makesquare;
+
+
+    .# Generators
+    .#############
+
+    .#? ::list.r\n  multidimentional range
+    .{ Example:
+        aya> [2 3].r
+        [ [ 1 2 3 ] [ 4 5 6 ] ]
+    .}
+    {${*}%R\L}:r;
+
+    .#? ::list.zeros\n  generate a [N1 x N2 x ...] list of zeros
+    .#? ::list.ones\n  generate a [N1 x N2 x ...] list of ones
+    .{? Example:
+        aya> [2 3].zeros
+        [ [ 0 0 0 ] [ 0 0 0 ] ]
+        aya> [4].ones
+        [ 1 1 1 1 ]
+    .}
+    {${*}%0\L\L}:zeros;
+    {${*}%1\L\L}:ones;
+
+    .#? ::any ::num ::list .lpad\n  left pad list using ::any to a max length of ::num
+    { .E @ \- 0.< @\L\J }:lpad;
+    .#? ::any ::num ::list .rpad\n  left pad list using ::any to a max length of ::num
+    { .E @ \- 0.< @\L J }:rpad;
+
+    .#? ::list ::num .pad\n 2d padding
+    {n l, l:En+$n+\~ l\#.>\.> \~@ \#.<\.<}:pad;
+
+
+    .#? ::any ::list .surround\n  append A to the front and back of L
+    {$\; \$@J\J}:surround;
+
+    .#? ::list .enumerate\n  return a list of index-value pairs for the list
+    {.E.R{A.B}.&}:enumerate;
+
+    .#? ::list .rank\n  rank a list from highest to lowest
+    {${>}.pu#W1+}:rank;
+
+    .#? ::list .irange\n generates a range of indices for the list
+    {E.R}:irange;
+
+
+
+    .# OTHER UTILITIES
+    .##################
+
+    .#? ::list.dict_flatten\n  given a list of dicts, flatten the into a single dict
+    {
+        {,}\J{.+}%
+    }:dict_flatten;
+
+
+    .#? ::list .matstr\n  convert a 2d list into a string with evenly spaced columns
+    .{ Example:
+        aya> [["A" "B" "CCC"]["D" "EE" "F"]] .matstr :P
+        A B  CCC
+        D EE F
+        aya> [["A" pi "CCC"]["hello world" "EE" 2]] .matstr :P
+        A           3.14159265 CCC
+        hello world EE         2  
+    .}
+    def ::matstr {m : colmax,
+        m :#{#{PE}}.T:#{{.<}%}:colmax;      .# The max width for each column
+        m .T colmax {#{\P\ B.<}} .& .T      .# For each colum, convert to string with
+                                            .# padding equal to the max for that column + 1
+        :#{WB;}                             .# Combine each row into a single string, remove trailing space
+        '\n' %                              .# Join with newlines
+    }
+
+    {\.S}:rotate_rows;
+    {\0\J.S}:rotate_cols;
+}
+.# Merge with list metatable
+[] .M \.+
+
+
+.# Removing .I, can directly swap for this
+{\:&@I}:dot_i;
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Metatable definition for the built-in `num` type
+
+{,
+
+    .#? ::num .digits\n  convert a number into a list of digits
+    {
+        Z           .# Convert to bignum
+        .|          .# Absolute value (ignore negative)
+        P B;V;      .# Remove the ': and 'z
+        '. S V \;   .# Remove any decimal
+        #:'         .# Convert to list of ascii values
+        48-         .# Subtract 48 (ascii value of '0)
+    }:digits;
+
+
+    .#? ::num .bits\n  return binary representation of the integer
+    {.| 10 2 .&}:bits;
+
+    .#? ::num .bytes\n  return byte list representation of the integer
+    {10 0 .&}:bytes;
+
+
+    .#? ::num .round\n  round a decimal to the nearest whole value
+    {0.49999999-./}:round;
+
+
+    .#? ::num ::num.fixed\n  round N1 to N2 decimal digits
+    {E$@@*.\\/}:fixed;
+
+
+    .#? n::nun lo::num hi::num .clip N1 between N2 (lo) and N3 (hi)
+    .# Reverse the order of min/max algorithms depending on sign
+    {@ .> .<}:clip;
+
+
+    .#? ::num.i\n  generate a range from -N to N
+    .{ Example:
+        aya> 4.i
+        [ -4 -3 -2 -1 0 1 2 3 4 ]
+        aya> 1.i
+        [ -1 0 1 ]
+        aya> -1.i
+        [ 1 0 -1 ]
+    .}
+    {
+        $           .# dup n so we can use the sign later
+        .| $TR\R    .# create negative and positive versions of the list
+        0\:J:J        .# join lists with a 0 between
+        \0<{U}?     .# If the sign is negative, reverse
+    }:i;
+
+
+    .#? ::num.frac\n  the fractional part of the number
+    { 1:% }:frac;
+
+
+    .#? ::num.s\n  split a decimal into two numbers
+    .{ Example:
+        aya> 4.6 .s
+        4 6
+        aya> 0.3 .s
+        0 3
+        aya> 5 .s
+        5 0
+    .}
+    {
+        $1:%P$.[0]'.={V;}?~ \.\ \
+    }:fracsplit;
+
+}
+.# Merge with num metatable
+0 .M \.+
+
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# string.aya
+.# Defines functions for working with strings and regular expressions
+
+{,
+    .# Import list variables
+    [].M W
+
+
+    {"\\s+" S E0=}:iswhitespace;
+
+    .#? ::str.trim\n  remove whitespace from start and end of string
+    {
+        :& .iswhitespace {
+            ; ""
+        } {
+            "^\\s+" S B\; "\\s+$" S V\; 
+        } .?
+    }:trim;
+
+
+    .#? ::num ::char ::str .leftpad\n  left pad string S so it is at least length I using char C
+    {len::num pad::char s,
+        s.E len\- {pad\:J}\O
+    }:lpad;
+
+
+    .#? ICS.rightpad\n  right pad string S so it is at least length I using char C
+    {len::num pad::char s,
+        s.E len\- {pad:J}\O
+    }:rpad;
+
+
+    .# S.tolower\n  convert string to uppercase
+    {:#{.upper}}:upper;
+
+
+    .# S.toupper\n  convert string to lowercase
+    {:#{.lower}}:lower;
+
+
+    .#? S.isnum\n  returns true if the string is a valid number
+    {.! :T ::num =}:isnum;
+
+
+    .#? S.titlecase\n  convert a string to titlecase
+    {s,
+        s ERB; # {i,
+            s.[iV] .iswhitespace {
+                s.[i].upper s.:[i];
+            } ?
+        };
+        s.[0].upper s.:[0];
+        s
+    }:titlecase;
+
+
+    .#? S.lines\n  split a string into lines. ignore traling newlines
+    {"\n"S}:lines;
+
+
+    .#? S.bytes\n  convert string to byte list
+    {:'}:bytes;
+
+
+    .#? S.parsenum\n  If num, return num, else return str (rm surrounding quotes)
+    {
+        .!
+        $:T ::str = {
+            .# If it is a string, test if it has quotes and remove them
+            .trim $ [0 -1]I "\"\"" = {B;V;} ?
+        } ?
+    }:parsenum;
+
+
+    .#? sep S.readdlm\n  convert a csv string into a 2d list
+    {sep s,
+        sepP:sep;
+        s.lines :# {
+            sep S :# {.parsenum}
+        }
+        .makesquare
+    }:readdlm;
+
+
+    .#? ::str ::str .endswith\n  test if a string 1 ends with string 2
+    {:&E@\.>=}:endswith;
+
+    .#? ::str .rmquote\n  remove single leading/trailing quote characters if they exist
+    .# aya> "A".rmquote
+    .# "A"
+    .# aya> "\"A\"".rmquote
+    .# "A"
+    .# aya> "\"A\"b".rmquote
+    .# ""A"b"
+    {s,
+        {
+            (s E 2 <) {
+                s
+            } (s.[-1] '" = s.[0] '" = &) {
+                s $ \ ; B ; V ;
+            } {
+                s
+            }
+        } :?
+    }:rmquote;
+
+}
+
+
+.# Merge with str metatable
+"" .M \.+
+
+
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Metatable definition for the built-in `sym` type
+
+{,
+    .{? ::sym .op
+
+        Return a block containing the operator
+        Does not currently work with quoted operators (TODO: fix internal representation)
+
+        aya> ::+ .op
+        {+}
+        aya> ::Ms .op
+        {Ms}
+        aya> ::"Ms" .op
+        Error
+    .}
+    {sym, 
+        ::ops Ma
+        .# filter out items where the symbol doesn't match
+        :# {k v, v.overload sym H {v}?}
+        .# Grab the `call` block
+        :V.[0].call.`
+    }:op;
+
+    .# Get a dict of all operator/symbol pairs
+    {,
+        "overloadable" M? :# {
+            .# Get <name> <op> as strings
+            :& "overloadable:.*$" & .[0] " " S .[-1] \ " " S .[0]
+            .# Lambda to apply to each <name> <op>
+            ({name op,
+                .# If the name is "__add__/__radd__", only use the first one
+                name '/ S .[0]:name;
+                .# Attempt to parse the op ( operator __each__ ":#" will fail)
+                .# And assign the op to its name
+                {op.~ name :=} {;} .K
+            })
+        }
+    }:_overloads;
+
+    {s, {::_.M._overloads s I} {; s :C.~ } .K }:op;
+
+
+    .{? ::sym .rev
+
+        Return the reverse overload for a symbol
+        - If the symbol is an operator and has a reverse overload, return it
+        - If the symbol is an operator but does not have a reverse overload,
+            return the original operator
+        - If the symbol is not an operator, throw an error
+
+        aya> ::+ .rev
+        ::__radd__
+    .}
+
+    {,
+        .# Get the overload list for all ops
+        ::ops Ma :#{.overload}
+        .# Get all ops with non-zero length overloads
+        .[{E 0 = !}]
+        .# For each overload list
+        :V :#{l,
+            .# Assign the reversed op to the standard one
+            .# If the list length is 1, standard will be assigned to itself
+            l.[-1] l.[0] :=
+        }
+    }:_rev_overloads;
+
+    { ::_.M._rev_overloads \ I }:rev;
+
+}
+.# Merge with sym metatable
+::_ .M \.+
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# test.aya
+.# Defines an interface for testing aya code
+
+{, } :test;
+
+.# New simpler test function
+{blk,
+.{
+    {
+        blk :!
+    } {ex,
+        ex.` :T ::dict = {
+            ex ::type 0 .I ::assert_err = {
+                ["Test Failed: $blk"
+                 "\tExpected: $(ex.expected.`)"
+                 "\tReceived: $(ex.received.`)"] "\n"* :P
+            } {
+                ex .D
+            } .?
+        } {
+            ex .D
+        } .?
+    } .K
+
+.}
+    blk :!
+} test.:test;
+.# The 100 Doors Problem
+
+.# initialize list
+0 100L:list;
+
+.# do 100 passes
+[100,] # {pass,
+  [pass $$+ 100,] # {door,
+    .# Swap the state of the door
+    list.[doorV] ! list.:[doorV];
+  }
+};
+
+.# print the doors
+list E.R :# {door,
+  list.[door] {"door $(doorB) is open" :P} ?
+};
+.# A basic account object
+
+class account
+
+.# Constructor
+def account::__init__ {name self,
+    .# The name of the account
+    name self.:name;
+    .# Set the account starting balance to 0
+    0 self.:balance;
+}
+
+.# Deposit the amount into the account, leave nothing on the stack
+def account::deposit {amnt self,
+    self.balance amnt + self.:balance ;
+}
+
+.# Remove the amount from the account
+.# Throw an error (.D) if there are insufficient funds
+def account::withdrawl {amnt self,
+    amnt self.balance > {
+      "Cannot withdrawl: Insufficient funds in account $(self.name)" .D
+    } ?
+    self.balance amnt - self.:balance ;
+}
+
+.# Override for printing to the console
+def account::__repr__ {self,
+    "$(self.name): \$$(self.balance)"
+}
+
+
+.# Example Usage
+.#################
+
+"> Creating account 'demo'" :P
+"demo" account! :demo;
+demo :P
+
+"> Depositing $100..." :P
+100 demo.deposit
+demo :P
+
+
+"> Withdrawling $50..." :P
+50 demo.withdrawl
+demo :P
+
+{
+    "> Attempting to withdrawl $70..." :P
+    70 demo.withdrawl
+} {ex,
+    "> Failed. Error: $ex" :P
+} .K
+[
+
+.# simple case
+{ [1 2] {[a b], "$a, $b"}~ "1, 2"}
+
+
+.# nested
+{ [1 [2 3]] {[a [b c]], "$a, $b, $c"}~ "1, 2, 3"}
+
+
+.# catchall
+{ [1 2] {[a b :c], "$a, $b, $c"}~ "1, 2, [ 1 2 ]"}
+
+
+.# ERROR: length mismatch
+
+.# Error: List length does not match argument length
+.# { [1] {[a b], }~ }
+
+.# Error: List length does not match argument length
+.# { [1 2 3] {[a b], }~ }
+
+
+.# Slurp
+{ [1 2 3 4] {[a b~], "$a, $b"}~ "1, [ 2 3 4 ]"}
+{ [1 2 3 4] {[a~ b], "$a, $b"}~ "[ 1 2 3 ], 4"}
+{ [1 2] {[a b~], "$a, $b"}~ "1, [ 2 ]"}
+{ [1 2] {[a~ b], "$a, $b"}~ "[ 1 ], 2"}
+{ [1 2 3 4] {[a b~ c], "$a, $b, $c"}~ "1, [ 2 3 ], 4"}
+{ [1 2 3 4] {[a b~ c d], "$a, $b, $c, $d"}~ "1, [ 2 ], 3, 4"}
+
+.# Slurp can be empty
+{ [1] {[a b~], "$a, $b"}~ "1, [ ]"}
+{ [1] {[a~ b], "$a, $b"}~ "[ ], 1"}
+
+.# Must at least be one list element per non-slurp variable
+{ [1 2] {[a b~ c], "$a, $b, $c"}~ "1, [ ], 2"}
+.# ERROR: list length does not match argument length
+.# { [1] {[a b~ c], }~ }
+
+.# If a catchall is provided, do not raise an error for list length mismatch
+.# all non-catchall variables will be undefined
+.# ERROR: list length does not match argument length
+.# { [1] {[a b], }~ }
+{ [1] {[a b :l], "$l"}~ "[ 1 ]"}
+
+
+.# first/last
+{[x _~], x}:first;
+{[_~ x], x}:last;
+
+{[1 2 3] first 1}
+{[1] first 1}
+{[1 2 3] last  3}
+{[1] last 1}
+
+
+.# len
+{[_ xs~ :l], l [] = 0 {xs len 1 +} .? }:len;
+
+{[1 2 3] len 3}
+{[1] len 1}
+{[] len 0}
+
+
+.# sum
+{[x xs~ :l], l [] = 0 {xs sum x +} .? }:sum;
+
+{[1 2 3] sum 6}
+{[1] sum 1}
+{[] sum 0}
+
+
+.# map
+{[x xs~ :l] fn, 
+    l [] = [] 
+    {[(x fn) (xs fn.` map)~]}
+    .?
+}:map;
+
+{[1 2 3] {2*} map [2 4 6]}
+{[1] {2*} map [2]}
+{[] {2*} map []}
+
+
+.# quicksort
+{[x xs~ :l], 
+    l [] = []
+    {[ (xs.[{x:<}] quicksort)~ x (xs.[{x>}] quicksort)~ ]}
+    .?
+}:quicksort;
+
+{[1 3 2 5 4 1] quicksort [1 1 2 3 4 5]}
+{[1] quicksort [1]}
+{[] quicksort []}
+
+
+.# filter
+{[x xs~ :l] fn,
+    l [] = []
+    {[x fn x ? (xs fn.` filter)~]}
+    .?
+}:filter;
+
+{[1 2 3 4 5] {3<} filter [1 2]}
+{[1 2 3 4 5] {0=} filter []}
+{[1 2 3 4 5] {0=!} filter [1 2 3 4 5]}
+{[] {0=} filter []}
+
+
+.# head/tail
+{[_ xs~ :l], lE 1 :< l {xs} .?}:tail;
+{[xs~ _ :l], lE 1 :< l {xs} .?}:head;
+
+{[1 2 3] head [1 2]}
+{[1] head [1]}
+{[] head []}
+{[1 2 3] tail  [2 3]}
+{[1] tail [1]}
+{[] tail []}
+
+
+.# loops
+{:m,
+    [[1 2 3]
+     [4 5 6]
+     [7 8 9]]:m;
+
+    m :# {[x y z],
+        "($x, $y, $z)"
+    }
+
+    ["(1, 2, 3)" "(4, 5, 6)" "(7, 8, 9)"]
+}
+
+
+.# enumerate
+{
+    "ABC".enumerate :# {[i v], "$i: $v"}
+    ["0: A" "1: B" "2: C"]
+}
+
+
+.# nested enumerate
+{:m,
+    [[1 2]
+     [3 4]
+     [5 6]]:m;
+
+    m.enumerate :# {[i [x y]],
+        "$i: ($x, $y)"
+    }
+
+    ["0: (1, 2)" "1: (3, 4)" "2: (5, 6)"]
+}
+
+
+] :# {test.test};
+
+.# Generates an ASCII train with N carts
+{n::num, [" ______  ""|      | "" ()--() ~"]#{nLWB;'\n'+}W}:train;
+
+1 train println
+3 train println
+5 train println
+
+
+.# Or using asciiart
+import ::asciiart
+
+{
+" 6_`|6 |` ()--()"_\L"  ~"_T.join
+}:train;
+
+3 train :P
+.# When using eclise, copy this file into target/classes and rename it "ayarc.aya"
+.# This file redirects aya back to the root folder and calls the ayarc.aya file from there
+
+.# From the root aya directory after building:
+.#   cp examples/ayarc_eclipse.aya target/classes/ayarc.aya
+
+.# The current working directory, split on path separator
+:{sys.wd} '/ S
+.# Pop 2 dirs
+{B ;} 2 %
+.# Re-assemble the path
+#"/"+ W
+.# Set as current dir and aya dir
+$ :{sys.cd} :{sys.set_ad}
+
+.# Load ayarc from the normal place
+:{sys.wd} "ayarc.aya" + :F
+.# Binary Search Tree Implementation
+.# @nick-paul
+
+class bst
+
+
+def bst::__init__ {data self,
+    data  self.:data;
+    ::nil self.:left;
+    ::nil self.:right;
+}
+
+
+def bst::_print {node depth bst,
+    " |" depth 1 + L W .P
+    node :T ::bst = {
+        node.right depth 1+ bst._print
+        node.left  depth 1+ bst._print
+    } { "-":P } .?
+}
+
+def bst::_insert {data node parent::bst side::sym bst,
+    node :T ::bst = {
+        data node.data > {
+            data node.right node ::right bst._insert
+        } {
+            data node.data < {
+                data node.left node ::left bst._insert
+            } ?
+        } .?
+    } {
+        data bst! parent.:[side];
+    } .?
+}
+
+
+def bst::insert {data self : bst^,
+    data self.data > {
+        data self.right self ::right bst._insert
+    } {
+        data self.left  self ::left  bst._insert
+    } .?
+}
+
+
+.# Tree printing algorithm from: https://stackoverflow.com/a/50650932
+def ::printtree {b::bst,
+  b ::nil = ! {
+    b.data :P
+    b "" printsubtree
+  } ?
+}
+
+def ::printsubtree {t::bst prefix::str : hasleft hasright,
+  t ::nil = ! {
+    t.right ::nil = ! :hasright;
+    t.left  ::nil = ! :hasleft;
+
+    hasleft hasright | {
+      prefix .P
+      hasleft  hasright & "├── " "" .? .P
+      hasleft! hasright & "└── " "" .? .P
+
+      hasright {: print_strand(0) newprefix,
+        hasleft hasright & {
+          t.right.right ::nil = !
+          t.right.left  ::nul = !
+          | :print_strand;
+        } ?
+        prefix (print_strand "│   " "    " .?) + :newprefix;
+        t.right.data :P
+        t.right newprefix printsubtree
+      } ?
+
+      hasleft {
+        (hasright prefix "" .?) .P
+        "└── " .P
+        t.left.data :P
+        t.left "$prefix    " printsubtree
+      } ?
+    } ?
+  } ?
+}
+
+50 bst! :b;
+.# Insert 10 random values
+{ 100Q b.insert } 20 %
+.# print
+b printtree
+.# https://codegolf.stackexchange.com/questions/120009/is-the-checkbox-not-not-unchecked
+
+{$"N|U|!"&E2:%'!\L\-8RI"isC"\++}:ischecked;
+
+[
+    "isChecked()"
+    "!isChecked()"
+    "isNotUnchecked()"
+    "isNotNotUnchecked()"
+] :# {s, "$s -> $(s ischecked)" :P} ;
+
+.# Example of defning a class using the `class` keywords
+.# See also: examples/account.aya
+
+class point
+
+.# constructor
+def point::__init__ {x y self,
+    x self.:x;
+    y self.:y;
+}
+
+.# print overload
+def point::__repr__ {self,
+    "($(self.x), $(self.y))"
+}
+
+.# operator overload
+def point::__add__ {other self,
+    other.x self.x +
+    other.y self.y +
+    self .M !
+}
+
+.# Could have also used the following:
+.# def point::+ {other self,
+
+.# static class variable
+99 point.:my_value;
+
+.# static class function
+def point::inc_my_value {point,
+    point.my_value 1 + point.:my_value;
+}
+
+def point::get_my_value {point,
+    point.my_value
+}
+
+.# Plain static function
+def point::say_hello {point,
+    "Hello world!" :P
+}
+
+
+
+.# Usage
+.###############
+
+.# constructor
+2 3 point! :p;
+1 5 point! :q;
+
+.# Use REPR Overload
+"p is " .P p :P
+"q is " .P q :P
+
+.# Addition overload
+"p + q is " .P
+p q + :P
+
+.# Static variables
+"point.my_value is $(point.my_value)" :P
+"p.my_value is $(p.my_value)" :P
+"q.my_value is $(q.my_value)" :P
+"point.get_my_value is $(point.get_my_value)" :P
+
+"Incrementing my_value twice ..." :P
+.# Static functions must be called from the class
+point.inc_my_value
+.# ... or the metatable
+p.M.inc_my_value
+
+"point.my_value is $(point.my_value)" :P
+.# Implement a function that computes the number of steps
+.# to get to 1 (or total stopping time) using the collatz conjecture
+
+.# https://en.wikipedia.org/wiki/Collatz_conjecture
+
+{
+.# Golfed version of the collatz conjecture (35 chars)
+$1={;0}{0\{n,Bn2:%n3*Bn2/.?$1>}W;}.?
+}:collatz;
+
+.# Pure stack (no variables) implementation (36 chars)
+.# { $1={;0}{0\{\B\$$2:%\3*B@2/.?$1>}W;}.?  }:collatz;
+
+"Collatz function:" :P
+collatz.` :P "":P
+
+"The first ten values in the 'collatz' sequence" :P
+"https://oeis.org/A006577":P
+[10, collatz] :P
+
+.# Scatter plot of the first 5000 values
+.# import::plot
+.# 5000R $#collatz plot.scatter.view
+.# Dictionary where indexing missing keys, the default value is returned
+.# Must use "d.[::key]" syntax not "d.key" as d.key is not overloadable
+
+class defaultdict
+
+def defaultdict::__init__ {dict default self,
+    dict self.:dict;
+    default self.:default;
+}
+
+def defaultdict::__getindex__ {key self,
+    self.dict key H! {
+        .# Make a copy
+        self.default $\; self.dict.:[key];
+    } ?
+    self.dict.[key]
+}
+
+def defaultdict::__setindex__ {value key self,
+    value self.dict.:[key]
+}
+
+def defaultdict::__str__ {self,
+    self.dict P
+}
+
+def defaultdict::__repr__ (defaultdict.__str__.`)
+
+.# Create a default dict
+{,} 0 defaultdict! :dd;
+"> Dict is $dd" :P
+
+"> Adding x=10..." :P
+10 dd.:[::x] :P
+
+"> Looking up ::x..." :P
+dd.[::x] :P
+
+"> Looking up unknown value ::y..." :P
+dd.[::y] :P
+
+"> Dict is $dd" :P
+.# A Simple echo client running on localhost:3003
+
+import ::socket
+
+"localhost" :addr;
+3003 :port;
+
+"Attempting to connect on $addr:$port..." :P
+
+addr port socket.connect :conn;
+
+"Got connection!" :P
+
+{
+    {
+        "> " .P
+        :R :data;
+        "Sending '$data'..." :P
+        data conn.println
+
+        conn.recv :reply;
+        "Server replied with '$reply'" :P
+
+        1 .# Loop forever
+    } W
+} {e,
+    "Connection closed" :P
+} .K
+.# A Simple echo server running on localhost:3003
+
+import ::socket
+
+"localhost" 3003 socket_server.listen :srv;
+
+"Waiting for connection on $(srv.addr):$(srv.port)..." :P
+
+srv.accept :conn;
+
+"Got connection!" :P
+
+{
+    {
+        .# Get the data
+        conn.recv :data;
+        "Client sent '$data'" :P
+
+        .# echo it back 
+        data conn.println
+
+        1 .# Loop forever
+    } W
+} {e,
+    "Connection closed" :P
+} .K
+
+.# Golfed stack based version
+{
+0\1{$@+}@%;
+}:fib_stack;
+
+"" :P
+"0 fib_stack is $(0 fib_stack)" :P
+"7 fib_stack is $(7 fib_stack)" :P
+"15 fib_stack is $(15 fib_stack)" :P
+
+
+.# Verbose iterative version
+{n : a(0) b(1) fib(0),
+    .# Set n to the max of n-1 and 0
+    n 1 - 0 .< :n;
+    n R :# {
+        a b + :fib;
+        b :a;
+        fib :b;
+    };
+    fib
+}:fib_iter;
+
+"" :P
+"0 fib_iter is $(0 fib_iter)" :P
+"7 fib_iter is $(7 fib_iter)" :P
+"15 fib_iter is $(15 fib_iter)" :P
+
+.# Classic recursive algorithm
+{n,
+    n 0 = n 1 = | {
+        n
+    } {
+        n 1 - fib_rec n 2 - fib_rec +
+    } .?
+}:fib_rec;
+
+"" :P
+"0 fib_rec is $(0 fib_rec)" :P
+"7 fib_rec is $(7 fib_rec)" :P
+"15 fib_rec is $(15 fib_rec)" :P
+
+
+.# Generate fibs below n
+{n : a(0) b(1),
+   while {a n <} {
+    a println
+    a $ b + :a; :b;
+   }
+}:fib;
+
+"Fibs below 100:" :P
+100 fib
+
+.# Golfed
+{n,0 1{\$:P\$@+$nB<}W;}:fib;
+
+.# fib golfed: 0\1{$@+}@%;
+
+"Fibs below 100 (golfed):" :P
+100 fib
+.# For loop on a list
+[2 4 6 8] :numbers;
+
+1 :product;
+
+numbers :# {n,
+  product n * :product
+};
+
+"The product is $product" println
+
+[2 4 6 8] {*} % :product;
+"The product is $product" println
+.# A super simple genetic algorithm for generating
+.# a line of text using random mutations
+
+from ::math import ::cumsum
+
+struct dna {data fitness}
+
+.# Random character between 'a and 'z
+{26Q'a+}:new_char;
+
+.# Random dna string
+{R:#{;new_char} 0 dna!}:rand_dna;
+
+.# The fitness is defined as the number of matches
+.# over the length of the array
+def dna::calc_fitness {target::dna self,
+    .# Leave the fitness on the stack
+    target.data self.data .= .E \W\ / $ self.:fitness;
+}
+
+.# Apply a random mutation to the dna
+def dna::mutate {self,
+    self.data :# {.Q 0.02 < {; new_char} ? } self.:data;
+    self
+}
+
+.# Overload = operator
+def dna::__eq__ {other self,
+    other.data self.data =
+}
+
+.# Take half of one and half of the other
+.# Assume equal length
+{a::dna b::dna : half len,
+    a.data E :len;
+    len 2 .% :half;
+    a.data half .< 
+    b.data len half - .>
+    + 0 dna!
+}:crossover;
+
+
+struct population { pop pop_fitness }
+
+.# Generate a random population
+{pop_size dna_size,
+    [pop_size,; dna_size rand_dna] 0.0 population!
+}:rand_pop;
+
+def population::__repr__ {self,
+    self.pop #P "\n" %
+}
+
+.# Calculate the fitness for each dna and
+.# then calculate the overall fitness
+.# Do not leave fitness on stack
+def population::calc_fitness {target::dna self,
+    self.pop #{target \.calc_fitness} ;
+}
+
+{
+    cumsum        .# Create a cumultive sum list
+    :&.[-1] .Q *  .# Generate a random number between 0 and the total sum
+    <             .# All items less than the number become 1, else 0
+    0 N \;        .# Find the first 0
+}:pickweighted;
+
+.# Select a random DNA from the population based on
+.# the fitness of the DNA (higher fitness = more
+.# likely to be picked)
+def population::pick {self : fit_list,
+    self.pop #.fitness :fit_list; .# Fitness list
+    self.pop.[fit_list pickweighted] .# Choose random based on weights
+}
+
+.# Compute the next generation and return a new population
+.#   A new population is created by
+.#   1) Choose two parents from this population
+.#   2) apply the crossover function to create a child
+.#   3) apply a random mutation to the child
+.#   4) repeat for each DNA in the population
+{pop::population,
+    pop.pop ER :# {;
+        pop.pick pop.pick crossover.mutate
+    } 0.0 population!
+}:next_gen;
+
+.# Select the DNA with the highest fithess from
+.#    the population
+def population::best {self,
+    self.pop {.fitness} .C .[-1]
+}
+
+main {
+    "evolve":target_str;
+    30 :pop_size;
+
+    target_str 0.0 dna! :target;
+    target_str E :dna_size;
+    pop_size dna_size rand_pop:pop;
+
+    0 :generations;
+
+    "Target: $target_str" :P
+
+    .# Continue creating generations until we hit a match
+    {
+        target pop.calc_fitness
+        pop.best :best;
+
+        .# Only print every so often
+        generations 100 :% 0 = {
+            "generation $generations: $(best.data) ($(best.fitness))" :P
+        } ?
+
+        pop next_gen :pop;
+        ::generations B
+
+        target best = !
+    } W
+
+    "Done! \"$(best.data)\", fitness: $(best.fitness), samples generated: $(pop_size generations*)" :P
+}
+.# Modeled after the greeter class from
+.# https://www.ruby-lang.org/en/
+
+class greeter
+
+def greeter::__init__ {name self,
+    name.titlecase self.:name;
+}
+
+def greeter::salute {self,
+    "Hello $(self.name)!" :P
+}
+
+.# Create a new object
+"world" greeter! :g;
+
+.# Output "Hello World!"
+g.salute
+.# A simple guessing game
+
+.# Select a random number 0-99 and ask the user to guess
+.# until they get it correct
+
+100 Q :secret;
+.# "The number is $secret" :P
+"A secret number 0-99 has been selected!" :P
+
+{
+    "Please input your guess: " .P
+    .# User input
+    :R :guess;
+    .# Parse as number
+    guess .! :guess;
+    .# Check if input was a valid number
+    guess :T ::num = {
+        .# Compare guess to the secret number
+        {
+            (guess secret <) {
+                "Too small" :P
+                1 .# continue looping
+            } (guess secret >) {
+                "Too big" :P
+                1 .# continue looping
+            } {
+                "Correct" :P
+                0 .# done looping
+            }
+        } :?
+    } {
+        "\"$guess\" is not a valid number. Please input a valid number" :P
+        1 .# continue looping
+    } .?
+} W
+
+.# Run this script by typing the following in aya
+.# aya> load "examples/hello_world"
+
+"Hello world!" :P
+.# create a person class
+class person
+
+.# The class keyword is equivelent to extending the base `object`
+.# with the extend operator
+.# The following two lines are the same
+.#
+.#   class person
+.#   ::person object extend;
+
+
+.# class variable
+def person::counter 0
+
+
+.# constructor
+def person::__init__ {name age self : person^,
+    name self.:name;
+    age  self.:age;
+    person.counter 1+ person.:counter;
+}
+
+
+.# member function
+def person::greet {self,
+    "Hi it's $(self.name)"
+}
+
+
+.# class function
+def person::create_anon {cls,
+    "Anon" 20 cls!
+}
+
+
+.# static methods still require the cls argument
+def person::years_to_months {years cls,
+    years 12 *
+}
+
+
+.# extend the person class
+::employee person extend;
+
+.# employee constructor
+def employee::__init__ {name age job self,
+    .# call super constructor
+    name age self super.__init__
+    .# derived-specific code
+    job self.:job;
+}
+
+
+.# overload person::greet
+def employee::greet {self : greeting,
+    .# call super greet
+    .# must pass `self` to super
+    self super.greet :greeting;
+    .# append derived-specific greeting to output
+    greeting ", I'm a $(self.job)" +
+}
+
+.{ EXAMPLE USAGE
+
+aya> "John" 25 person! :john
+(person 0x261ce424)
+
+aya> john.greet
+"Hi it's John"
+
+aya> person.counter
+1
+
+aya> person.create_anon :anon
+(person 0x32e4b981)
+
+aya> person.counter
+2
+
+aya> 3 person.years_to_months
+36
+
+aya> "Bob" 30 "Salesman" employee! :bob
+(employee 0x360deb9e)
+
+aya> bob.greet
+"Hi it's Bob, I'm a Salesman"
+
+aya> person.counter
+3
+
+aya> 4 employee.years_to_months
+48
+
+.}
+
+.# Primality test in 11 chars
+{
+RB\:%0.=W1=
+}:isprime;
+
+"Prime numbers below 100:" :P
+[100,, isprime] :P
+
+.{
+aya> [6 7]# {$:P (R) .A:P};
+6
+[ [ 1 2 3 4 5 6 ] ]
+7
+[ [ 1 2 3 4 5 6 7 ] ]
+aya> [6 7]# {$:P (RB) .A:P};
+6
+[ [ 1 2 3 4 5 ] 6 ]
+7
+[ [ 1 2 3 4 5 6 ] 7 ]
+aya> [6 7]# {$:P (RB\:%) .A:P};
+6
+[ [ 0 0 0 2 1 ] ]
+7
+[ [ 0 1 1 3 2 1 ] ]
+aya> [6 7]# {$:P (RB\:%0.=) .A:P};
+6
+[ [ 1 1 1 0 0 ] ]
+7
+[ [ 1 0 0 0 0 0 ] ]
+aya> [6 7]# {$:P (RB\:%0.=W) .A:P};
+6
+[ 3 ]
+7
+[ 1 ]
+aya> [6 7]# {$:P (RB\:%0.=W1=) .A:P};
+6
+[ 0 ]
+7
+[ 1 ]
+.}
+import ::iterator
+
+.# Implementing and using an iterator
+
+{,
+  .# Any user types must define a "type"
+  .# "type" should always be a symbol
+  .#   representation of the type name
+  ::mylist:type;
+
+  .# To implement an iterator we import
+  .#   its variables into this one
+  using iterator
+
+  .# `mylist` is just a wrapper for a list
+  .#   we assign the list variable to `.l`
+  {l,
+    {,l:l} mylist MO
+  }:new;
+
+  .# All types that implement iterator must
+  .#   must define an `iter` dict
+  {,
+    .# since mylist is just a list wrapper,
+    .#   we can use the built in listiter
+    .#   to define `start`, `next`, and `done`
+    using listiter
+
+    .# In the `new` function, we simply create
+    .#   a new `listiter` on our list stored
+    .#   in the variable `.l`
+    {ml::mylist,
+      ml.l listiter!
+    }:new;
+
+  }:iter;
+
+}:mylist;
+
+.# Create an object of type `mylist`
+[1 2 3] mylist! :l;
+
+.# We can now use the `.each` function to
+.#   operate on our list
+"The list elements are:" println
+{n, "  - $n" println} l.each
+
+.# `reduce` function
+"The sum of the list is: " print
+{+} l.reduce println
+
+.# `reducewith` uses the first arg as the starting point
+"A list of objects: " print
+[] {.B} l.reducewith println
+
+.# `collect` collects all items into
+.#   a single list
+"Another list of objects: " print
+l.collect println
+.# A Sample script that creates a loading
+.# animation in the console for a few seconds
+
+"Loading..." .P "-\|/" {.roll 0 dot_i .P 100:Z '\b'.P} 30 %;
+" done." :P
+.# Also see examples/canvas/mandelbrot
+
+60 :width;
+27 :height;
+
+.# Create complex plane a
+[-2 0.5 width]  .R :x;
+[1  -1  height] .R :y;
+y :0i1 * x `+ :*   :a;
+
+.# Matching plane of zeros
+0 a:E L :z;
+
+.# The mandelbrot algorithm
+z {2^a+} 20 % .|
+
+.# Display
+2 < " #" \ I "\n" % :P
+
+.#? ::any ::block ::num rpt\n  start at A and repeat E N times on the previous value of the list
+.{
+    aya> 1 {2*} 4 rpt
+    [1 2 4 8 16]
+.}
+{start expr len,
+    [start {$ expr} len %]
+}:rpt;
+
+
+
+.#? ::list<::num> digitstonum\n  convert a list of numbers into a number
+{l::list : total multip,
+    1:multip;
+    lU#{
+        multip* total+:total;
+        multip 10 *:multip
+    };
+    total
+}:digitstonum;
+
+
+main {
+    1 {2*} 4 rpt [1 2 4 8 16] :!
+    [1 2 3 4] digitstonum 1234 :!
+}
+.# You are going on a vacation next week. A 50% chance of rain
+.# is forecasted each day. What is the probability that it
+.# will rain 3 consecutive days over the week you are on
+.# vacation?
+.#
+.# Use a monte-carlo approximation.
+.# This example uses the if keyword instead of ? and .?
+
+def ::shouldrain {:counter rain,
+    {
+        2Q {
+            0:counter;
+        } {
+            ::counter B
+            counter 3 :> {
+                1:rain;
+            } ?
+        } .?
+    } 7 %
+    rain
+}
+
+def ::rainprob {samples : counter,
+    {
+        counter shouldrain+:counter;
+    } samples %
+    counter samples/
+}
+
+2500 rainprob 100* :result;
+
+"There is a $result% chance of 3 consecutive days of rain.":P
+from ::la import ::dot
+
+.# Sigmoid helper functions
+{-1 * Me 1+ 1\/}:sigmoid;
+{:& 1\- *}:dsigmoid;
+
+.# Neural Net class
+class nn
+
+def nn::__init__ {x y self,
+    x self.:input;
+    y self.:y;
+    0 yE L self.:output;
+    .# Randomly initialize weights
+    0 [x:E1I 4] L {;.Q} .O self.:weights_a;
+    0 [4     1] L {;.Q} .O self.:weights_b;
+}
+
+
+def nn::feedforward {self : sigmoid^,
+    self.input   self.weights_a dot sigmoid self.:layer_a;
+    self.layer_a self.weights_b dot sigmoid self.:output;
+}
+
+
+def nn::backprop {self : dsigmoid^ d d_weights_a d_weights_b,
+    self.y self.output - 2 * self.output dsigmoid * :d;
+
+    self.layer_a.T d dot :d_weights_b;
+
+    self.input.T
+    d self.weights_b.T dot self.layer_a dsigmoid *
+    dot :d_weights_a;
+
+    self.weights_a d_weights_a + self.:weights_a;
+    self.weights_b d_weights_b + self.:weights_b;
+}
+
+
+def nn::loss {self,
+    self.y self.output - 2^
+    .F :& E \W\/ .# mean
+}
+
+main {
+    import ::plot
+
+    .# Data
+    [[0 0 1][0 1 1][1 0 1][1 1 1]] :x;
+    [[0][1][1][0]] :y;
+
+    x y nn! :net;
+    []:loss;
+
+    .# Train for 1000 steps
+    {
+        net.feedforward
+        net.backprop
+        net.loss :m loss .B ;
+    } 1000 %
+
+    lossER loss plot.line :plt;
+    "Neural Net Example" plt.:title;
+    "Loss" plt.:ylabel;
+    "Iteration" plt.x.:label;
+    plt.view
+}
+.# A golfed fib function
+{0\1{$@+}@%;}:fib;
+
+"The first 10 fib numbers are " .P
+10R #fib :P
+import ::json
+import ::sys
+import ::io
+
+.# All files in base/ and std/
+[
+    "base" path! $ sys.readdir + ~
+    "std"  path! $ sys.readdir + ~
+] :files;
+
+.# Convert to strings
+files #P :files;
+
+{,} :data;
+
+files :# {file,
+    file G data.:[file];
+};
+
+data json.dumps :json_data;
+
+"aya-stdlib.js" :outfile;
+
+"const AYA_STDLIB = $json_data;" outfile 0 .G
+
+"Created file $outfile" :P
+
+
+
+.# Compute the product of numbers in a list
+
+[2 4 6 8] :numbers;
+
+.# Pattern for a for loop on a list
+1 :product;
+numbers :# {n,
+  product n * :product;
+};
+"The product is $product" :P
+
+.# Can also use the fold operator (%)
+[2 4 6 8] {*} % :product;
+"The product is $product" :P
+
+[4 0 5 2 7 3 2 5 6 6]:lst;
+
+.# Standard implementation
+{l$ : h,
+    .# If the list is more than 1 item long, perform the operation
+    .#   otherwise just leave the original list on the stack
+    l .E 1 > {
+        .# The head from the list
+        V:h;;
+        .# [ sort items less than h, h, sort items larger than h]
+        [l,,h:<]qs h [l,,h>]qs JJ
+    } ?
+}:q;
+
+
+.# Optimized implementation with no global vars
+.# We define this function this way since the first call must copy the list
+.# Other calls may use the reference.
+{l$ :
+    q({l : h,
+        .# If the list is more than 1 item long, perform the operation
+        .#   otherwise just leave the original list on the stack
+        l .E 1 > {
+            .# The head from the list
+            V:h;;
+            .# [ sort items less than h, h, sort items larger than h]
+            [l,,h:<]q h [l,,h>]q JJ
+        } ?
+    }),
+    
+    l q
+}:qs;
+
+lst :P
+lst qs :P
+
+.# Golfed version of the standard implementation
+.# {l$:x,l.E1>{V:x\{x:<}Iq\Jl{x>}IqJ}?}:q;
+
+.# Stack only version
+{.E1> {$\; :&V$@\< @\ :&#! @:&@.i \@.i qss @@qss JJ} ?}:qss;
+
+.# Stack only version with no global vars
+.# {.E1> {$\; :&V$@\< @\ :&#! @:&@.i \@.i _ @@_ JJ} ?} {1, :_} :+
+
+.# Quicksort benchmark and example output
+.# aya> 10 R :# {; [100000,;.Q] {qs;}.time} :& .E \W\/
+.# [ 497 496 504 518 502 495 525 508 498 521 ] 506.4 
+
+.# Sorting 100,000 items
+"Sorting 10,000 items..." :P
+[10000,;.Q] {qs;}.time :ms;
+"Took $(ms)ms" :P
+.# A non-trivial quine
+
+.# aya> [ "2L#~V\.P:P" ]2L#~V\.P:P
+.# [ "2L#~V\.P:P" ]2L#~V\.P:P
+
+[ "2L#~V\.P:P" ]2L#~V\.P:P
+.# Package for loading Rdatasets from github: vincentarelbundock/Rdatasets
+.# Example:
+.# "cluster/agriculture" rdatasets.load_csv
+
+
+import ::csv
+
+{,
+
+    "https://raw.githubusercontent.com/vincentarelbundock/Rdatasets/master/csv":url;
+
+    {name::str : url^,
+        "/" `in name {
+            "$url/$name.csv"
+        } {
+            "$url/datasets/$name.csv"
+        } .?
+    }:make_url;
+
+    {name::str : make_url^,
+        name make_url csv.open
+    }:load_csv;
+
+}:rdatasets;
+"Lists":P
+[1 2 3 'a 'b 'c] :list;
+{list$X;x}:newlist;
+
+0 newlist.:[0];          x:P  .# [ 0 2 3 'a 'b 'c ]
+0 newlist.:[-1];         x:P  .# [ 1 2 3 'a 'b 0 ]
+0 newlist.:[[0 -1]];       x:P  .# [ 0 2 3 'a 'b 0 ]
+[9 10] newlist.:[[0 -1]]; x:P  .# [ 9 2 3 'a 'b 10 ]
+[0 1] newlist.:[newlistE.R];   x:P  .# [ 1 0 1 0 1 0 ]
+9 newlist.:[{:T::num=}];   x:P  .# [ 9 9 9 'a 'b 'c ]
+9 newlist.[{:T::str=}];   x:P  .# [ 1 2 3 'a 'b 'c ]
+
+"Dicts":P
+{, 1:a 2:b 3:c} :dict;
+{dict$X;x}:newdict;
+
+9 newdict.:[::a];          x:P  .# {, 9:a; 2:b; 3:c; }
+9 newdict.:[::x];          x:P  .# {, 1:a; 2:b; 3:c; 9:x; }
+
+.# setindex overload
+newdict :d;
+d {, {item index self,
+"d.setindex:
+  Item: $item
+  Index: $index
+  Self: $self":P}:__setindex__} MO;
+9d.:[::a]
+
+
+"Blocks":P
+{a b c 1 2 3} :block;
+{block.`$X;x.`}:newblock;
+
+1 newblock.:[::a];         x.`:P  .# {1 b c 1 2 3}
+1 newblock.:[::x];         x.`:P  .# {a b c 1 2 3}
+import ::missing
+
+class singleton
+
+nil singleton.:_instance;
+
+def singleton::__init__ {self,
+    0 self.:counter ;
+}
+
+def singleton::add {self,
+    self.counter 1 + self.:counter;
+}
+
+impl_static singleton::get_instance {meta,
+    meta._instance nil = {: self,
+        {,} meta MO: self .__init__
+        self meta.:_instance;
+    } ?
+
+    meta._instance
+}
+
+def singleton::__new__ {
+    "Do not create instance of singleton directly" .D
+}
+
+.# A simple spell checker using levenshtein distance
+
+.# Load the word database
+"examples/data/words.txt"G.lines :words;
+
+.#
+.# A minimal example:
+.#
+
+.# aya> words {"necessacary"^}.C 3.<
+.# [ "necessary" "necessarily" "accessary" ]
+
+
+.#
+.# Interactive example
+.#
+
+import ::dialog
+
+.# A function which takes a word and returns the word
+.#   with the nearest levenshtein distance
+{w,
+    words {w^}.C V\;
+}:nearest_word;
+
+"Enter a word" dialog.getstr.lower :my_word;
+
+my_word "" = {
+  "No word entered" dialog.error
+} {
+    .# get nearest word
+    my_word nearest_word :nearest;
+
+    nearest my_word = {
+        "Spelling is correct!" dialog.alert
+    } {
+        "The correct spelling is '$nearest'" dialog.warn
+        "Other possible spellings:":P
+        words {my_word^}.C 5 .< # {w,
+          "  - $w":P
+        };
+    } .?
+} .?
+
+
+
+:! .! !
+:@ .@ @
+$ .$ :$
+% .% :%
++ .+ :+
+* .* :*
+- .- :-
+A .A :A
+= .= :=
+/ ./ :/
+\ .\ :\
+? .? \?
+| .| :|
+~ .~ :~
+
+aM4a aMYa aMza aM+a
+
+::+
+::.+
+::M+
+::+m
+::foo
+:::+
+
+
+def foo::bar { }
+def foo::+ { }
+def foo::.+ { }
+def foo:::+ { }
+def foo::M+ { }
+
+class point
+
+struct point {x y}
+
+." :" "str"
+.' :' 'c 'b
+
+:
+; .; :;
+, ., :,
+
+( .(
+) .) :)
+:# # .# blah
+
+a.:x a.x
+
+_ a._ a:_
+
+
+.{  You are going on a vacation next week. A 50% chance of rain
+.   is forecasted each day. What is the probability that it
+.   will rain 3 consecutive days over the week you are on
+.   vacation?
+.   Use a monte-carlo approximation.
+.}
+.# aowind
+
+['a 'b 'c]:abc;
+
+{: counter rain,
+  {
+    if (2 Q) {
+      0 :counter;
+    } {
+      ::counter B
+      if (counter 3:>) {
+         1:rain;
+      }{}
+    }
+  } 7 %
+  rain
+}:shouldrain;
+
+{samples : counter,
+  {
+    counter shouldrain+:counter;
+  } samples %
+  counter samples/
+}:rainprob;
+
+{:< :> .< .> .~ :~ }
+
+.# Another comment!
+2500 rainprob 100.0 * :result;
+
+{,
+
+    ::point:type;
+
+    {x::num y::num,
+        {, x:x y:y} plot MO
+    }:new!;
+
+    {other self, 
+        other.x self.x +:x other.y self.y + point!
+    }:add;
+}
+
+
+'d 'b 
+
+
+"There is a $result% chance of 3 consecutive days of rain.":P
+import ::threading
+
+"== Single Task ==" :P
+
+.# Create a single thread and run a task
+threading.new :thread;
+
+"Created thread with id $(thread.id)" :P
+
+{
+    "starting task" :P
+    1 1 +
+    "finished task" :P
+} thread.add_task ;
+.# OR thread +
+
+thread.wait_for_result :result;
+.# OR thread .|
+
+"Result is $(result)" :P
+
+
+"== Single Task with Globals ==" :P
+
+.# Create a single thread and run a task
+threading.new :thread;
+
+"Created thread with id $(thread.id)" :P
+
+{
+    [1 2 3] .x 3 +
+} thread + ;
+
+thread .| :result;
+
+"Result is $(result)" :P
+
+
+
+.# Create multiple threads with tasks
+
+"== Multiple Tasks ==" :P
+
+[4,{i, {:i^, 100:Z "Task $(i) complete" :P i} }] :tasks;
+
+[tasksE ,; threading.new ]:threads;
+
+
+.# Add one task per thread
+.# operator `+` is automatically broadcasted
+.# same as [tasks threads, .add_task];
+tasks threads + ;
+
+.# Join all threads
+.# operator `.|` is automatically broadcasted
+.# same as [threads, .wait_for_result]
+threads .| :P
+
+"complete" :P
+
+
+.# Thread pool
+"== Thread Pool ==" :P
+
+[10 ,{i, {:i^, 100:Z "Task $(i) complete" :P i} }] :tasks;
+
+
+
+[] :threads_with_tasks;
+[4 ,; threading.new]:thread_pool;
+
+
+.# Loop until no tasks remain
+{
+    .# For each thread with a task, check if it is ready,
+    .# if it is, get the result and add it back to the pool
+    [] :finished_threads;
+    threads_with_tasks :# {thread : res, 
+        thread.has_unfinished_tasks ! {
+            thread.wait_for_result :res;
+            "Got result $res" :P
+            thread finished_threads .B;
+        } ?
+    };
+
+    .# Remove finished threads from threads with tasks
+    threads_with_tasks finished_threads :| :threads_with_tasks;
+
+    .# Add the finished threads back to the pool
+    thread_pool finished_threads J :thread_pool;
+
+   .# Add a task to each thread in the pool
+    thread_pool :# {thread,
+        tasks E 0 > {
+            tasks B\; thread.add_task
+            thread threads_with_tasks .B;
+        } ?
+    };
+
+    .# Remove threads with tasks from the pool
+    thread_pool threads_with_tasks :| :thread_pool;
+
+    1 :Z
+
+tasks E 0 > } W
+
+.# Wait for all remaining tasks
+threads_with_tasks :# {thread : res,
+    thread.wait_for_result :res;
+    "Got result $res" :P
+};
+
+"done" :P
+
+.#? S tocamel\n  convert a string with underscores to camel case
+{str,
+  ['a'z,] # {c,
+    str "_+$c" c! .& :str;
+  };
+  .# remove extra (trailing) '_'
+  str "_" :|
+}:tocamel;
+
+"hello_there_world" $.P " -> ".P tocamel :P
+{a b,
+    ::a b - .# ERROR HERE! Should be "a b -"
+}:sub;
+
+{a b,
+    a b +
+}:add;
+
+{x,
+    x 1 add 10 mul
+}:fn;
+
+{n : a(0) b(1) fib(0),
+    .# Set n to the max of n-1 and 0
+    n 1 sub 0 .< :n;
+    n R :# {
+        a b add :fib;
+        b :a;
+        fib :b;
+    };
+    fib
+}:fib_iter;
+
+{
+    10R :# {i,
+        i fib_iter :P
+    };
+}:print_first_ten_fibs;
+
+
+print_first_ten_fibs
+
+
+.# This is a demonstration of how macro-like functions can be written
+.# The following function takes a block as an argument and vectorizes
+.# it. Of course, the same thing can be achieved with the map (#) operator
+
+{f,
+    .# A function which applies __x to each element in a list using :#
+    {:f^, :#{f}}
+    .# Substitute __x with the input function 'f'
+}:vectorize;
+
+.{
+This function only works on non-lists since the B operator is defined differently for lists
+aya> {a, a B} :inc
+{a , a B }
+
+:: num B -> increment
+aya> 2 inc
+3
+
+::list B -> pop
+aya> [1 2 3] inc
+[ 1 2 ] 3
+
+Apply the vectorize function
+aya> inc .` vectorize :vinc
+{: fn , {a , a B } :fn ; {fn} :# }
+aya> [1 2 3] vinc
+[ 2 3 4 ]
+
+Of course the same can be achieved with the # operator:
+aya> [1 2 3] #inc
+[ 2 3 4 ]
+.}
+
+
+.# From Ruby's front page
+.# ruby-lang.org
+
+.# Aya knows what you
+.# mean, even if you
+.# want to do math on
+.# an entire Array
+[ "London"
+  "Oslo"
+  "Paris"
+  "Amsterdam"
+  "Berlin" ] :cities;
+
+["Berlin" "Oslo"] :visited;
+
+"I still need to visit the "
+"following cities: " +
+cities visited :| P + println
+import ::terminal
+import ::color
+
+.# Print all the colors in the XKCD color list
+.# If the terminal supports it, all colors will be printed using their own color
+
+"https://xkcd.com/color/rgb.txt" G .lines
+.# Filter to only select lines with colors in them
+{"\t#" H} I
+.# Map over the list and print each color
+:# {
+    '\t' S ~ color.newhex terminal.println_color
+};
+.{
+    asciiart
+
+    A small toy library for drawing ascii art
+
+    asciiart makes heavy use of operator overloading to allow programs
+    to be as short and concise as possible.
+
+    Examples:
+
+      - A simple train:
+
+        aya> " 6_`|6 |` ()--()"_ 3L"  ~"_T*
+        asciiart:
+         ______   ______   ______
+        |      | |      | |      |
+         ()--() ~ ()--() ~ ()--()
+
+
+      - Order N Serpinski triangle:
+
+        aya> 3 "##`#"_\L{I}/
+        asciiart:
+        ########
+        # # # #
+        ##  ##
+        #   #
+        ####
+        # #
+        ##
+        #
+
+https://codegolf.stackexchange.com/questions/101684/all-aboard-the-ascii-train
+"hello"
+({
+.E"3 3_`  | # |`  |3_|`_|5\"|"_ "\"`-0-0-'"/\L\{'#\JI}.&W"4 o O O`3 o`  TW__[O]` {6=|" _"./o--000'"/\+
+})
+.}
+
+class asciiart
+export [::asciiart ::_]
+
+def asciiart::__init__ {str self,
+    str :T ::str = {
+        [str] self.:list ;
+    } {
+        .# list
+        .# Make sure all are at least as long as the longest
+        str :&#E .max #.< :str ;
+        str self.:list ;
+    } .?
+}
+
+def asciiart::__eq__ {self c::char,
+    self.list :# { :# {; c}} self.M!
+}
+
+def asciiart::__str__ {self,
+    self.list "\n" %
+}
+
+def asciiart::__repr__ {self,
+    "asciiart:\n$(self.__str__)\n"
+}
+
+
+def asciiart::__negate__ {self,
+    self.list.T self.M!
+}
+
+
+.{  Transpose
+    Example:
+
+    aya> "3#`.##`..#"_ $ T
+    asciiart:
+    ###
+    .##
+    ..#
+     asciiart:
+    #..
+    ##.
+    ###
+.}
+def asciiart::__negate__ {self,
+    self.list.T self.M!
+}
+
+
+.{ Example:
+
+    aya> "3#`3.`#.."_ $ +
+    asciiart:
+    ######
+    ......
+    #..#..
+
+    aya> "3#`3.`#.."_ '~ +
+    asciiart:
+    ###~
+    ...~
+    #..~
+
+    aya> "3#`3.`#.."_ ")>" +
+    asciiart:
+    ###)>
+    ...)>
+    #..)>
+
+    aya> ["3#`3.`#.."_ $ '~\] W
+    asciiart:
+    ###~###
+    ...~...
+    #..~#..
+.}
+def asciiart::__add__ {other self,
+    other :T ::char = other :T ::str = | {
+        self.list #{other \+} self.M!
+    } {
+        other.list .T self.list.T :J .T self.M!
+    } .?
+}
+
+
+def asciiart::__radd__ {self other,
+    self.list #{other +} self.M!
+}
+
+
+def asciiart::w {self,
+    self.list.T E
+}
+
+def asciiart::h {self,
+    self.list E
+}
+
+.{ Horizontal stack
+   Example:
+    aya> "3#`3.`#.."_ $ /
+    asciiart:
+    ###
+    ...
+    #..
+    ###
+    ...
+    #..
+.}
+def asciiart::__div__ {other self,
+    other.list $\; self.list $\; :J self.M!
+}
+
+def asciiart::__rdiv__ {self other,
+    self other self.M! /
+}
+
+
+.{ Reverse along vertical axis
+   Example:
+    aya> "3#`3.`#.."_ $ U
+    asciiart:
+    ###
+    ...
+    #..
+     asciiart:
+    ###
+    ...
+    ..#
+.}
+def asciiart::__reverse__ {self$,
+    self.list :#{U};
+    self
+}
+
+def asciiart::__dec__ {self$,
+    self.list U ;
+    self
+}
+
+def asciiart::join {list self,
+    list :#{self} B; W
+}
+
+def asciiart::__rpow__ {self num,
+    self {self +} numV %
+}
+
+.{ Example:
+    aya>  "aba`bad" _ '# I
+    ::char
+    asciiart:
+    ###
+    ###
+
+    aya>  "aba`bad" _ "a#" I
+    ::str
+    asciiart:
+    #b#
+    b#d
+
+    aya> "# ` #"_ "abc`def"_ I
+    asciiart:
+    abc
+    def
+       abc
+       def
+.}
+def asciiart::__getindex__ {index self,
+    {
+        (index :T ::str =) {
+            index self.replace
+        } (index :T ::char =) {
+            index self.fill
+        } (index :T ::asciiart =) {
+            index self.replace_aa
+        } {
+            "asciiart::__getindex__ invalid index type" .D
+        }
+    } :?
+}
+
+.{ Example:
+    aya> '@ "abc`def" _ .fill
+    asciiart:
+    @@@
+    @@@
+
+    aya> "#" "abc`def" _ .fill
+    asciiart:
+    ###
+    ###
+.}
+
+def asciiart::fill {c self,
+    c :T ::str = {c.[0] :c;} ?
+    self.list :# { :# {; c}} self.M!
+}
+
+
+.{ Example:
+    aya> "#-" "###`# ` # "_ .replace
+    asciiart:
+    ---
+    -
+     -
+
+    aya> "###`***" "###`# ` # "_ .replace
+    asciiart:
+    ***
+    #
+     #
+.}
+def asciiart::replace {s::str self,
+    s '` S .E1={~}? :s ;
+    s V:from ; V:to ; ;
+    self.list :# {from to .&}
+    self.M!
+}
+
+.{ Example:
+    aya> "3#`# #`3#"_
+    asciiart:
+    ###
+    # #
+    ###
+
+    aya> "3#`# #`3#"_ $.replace_aa
+    asciiart:
+    #########
+    # ## ## #
+    #########
+    ###   ###
+    # #   # #
+    ###   ###
+    #########
+    # ## ## #
+    #########
+.}
+def asciiart::replace_aa {a::asciiart self : l,
+    a $ ' I \ J :l;    .# List of aa and empty version of aa
+    self.list ' #.= #! .# Mask of filled/empty
+    :#{
+        :#{ l \ I }    .# Use the mask to index into the list
+        W              .# Concat each aa in the row
+    } {/}/             .# Concat each row
+}
+
+def asciiart::rle {s asciiart,
+    s $ "\\d+" S \ "\\d+" &  .# Split into lists of string sections and runs
+                            .# Ex: "3a 4b" => ["" "a " "b"] ["3" "4"]
+    .E 0 = {
+        ;;s                 .# If no rle to do, just return the string
+    } {                     .# There is rle to do, do this block
+        #.!                 .# convert strings to nums => [3 4]
+        \V@@                .# Remove the leading string and rearrange
+        {
+            V               .# pop the charachter to repeat
+            @L              .# repeat the character
+            \+              .# join with original string
+        }
+        .&                  .# Apply the above block to each pair in the list
+        W+                  .# Combine everything
+    } .?
+}
+
+
+
+
+
+[ "00000" "0   0" "00000" ] asciiart!T :o;
+[ "EEEEE" "E E E" "E   E" ] asciiart!T :e;
+[ "T    " "TTTTT" "T    " ] asciiart!T :t;
+[ "GGGGG" "G G G" "G GGG" ] asciiart!T :g;
+
+asciiart:aa;
+
+{asciiart.rle '` S asciiart!}:_;
+
+.{ Example:
+    Generate a Sierpinski carpet:
+    "3#`# #`3#"_$I$I
+    .. or triangle
+    "##` #"_ $I$I
+
+    ".:.` ."_$I$I
+
+    "##`#"_$I $U\+ $V\/ $I
+.}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# bitset.aya
+.# Defines bitset type
+
+class bitset
+export ::bitset
+
+def bitset::__new__ {s meta,
+    s :T ::num = {
+        {, s:size 0sL:bits } meta :M
+    } {
+        s meta.fromlist
+    } .?
+}
+
+def bitset::fromlist {l::list : bitset^,
+    {, lE:size l:bits } bitset :M
+}
+
+
+def bitset::__str__ { .bits P "bitset!" + }
+
+def bitset::__repr__ (bitset.__str__.`)
+
+
+
+.#? index ::bitset.set\n  set the bits given by the index to true
+.{ Example:
+    aya> 4 bitset! :b
+    [ 0 0 0 0 ]
+    aya> 1 b.set
+    aya> b
+    [ 0 1 0 0 ]
+    aya> [0 3] b.set
+    aya> b
+    [ 1 1 0 1 ]
+.}
+def bitset::set {n self,
+    1 self.bits.:[n];
+}
+
+
+.#? index ::bitset.set\n  set the bits given by the index to false
+.{ Example:
+    aya> [1 0 1 0] bitset! :b
+    [ 1 0 1 0 ]bitset!
+    aya> 0 b.reset
+    aya> b
+    [ 0 0 1 0 ]bitset!
+.}
+def bitset::reset {n self,
+    0 self.bits.:[n];
+}
+
+.#? ::bitset.__getindex__\n  get value of bit at the given index
+.{ Example:
+    aya> [1 0 1 0] bitset! :b
+    [ 1 0 1 0 ]bitset!
+    aya> b.[0]
+    1
+    aya> b.[0 2]
+    [ 1 1 ]
+.}
+def bitset::__getindex__ {n self,
+    self.bits.[n]
+}
+
+
+.#? ::bitset.count\n  return the number of true bits in the set
+.{ Example:
+    aya> [0 1 0 1] bitset! .count
+    2
+    aya> [1 1 1 1] bitset! .count
+    4
+.}
+def bitset::count { .bits W }
+
+.#? ::bitset.__signum__\n  not each bit
+.{ Example:
+    aya> [1 0 1 0] bitset! .!
+    [ 0 1 0 1 ]bitset!
+.}
+def bitset::__signum__ {self,
+    self.bits #! self.M.fromlist
+}
+
+
+.#? ::bitset ::bitset.__or__\n  or two bitsets
+.{ Example:
+    aya> [0 0 0 1] bitset! [1 1 0 0] bitset! |
+    [ 1 1 0 1 ]bitset!
+.}
+def bitset::__or__ {other self,
+    other.bits self.bits {|}.&
+    self.M.fromlist
+}
+
+
+.#? ::bitset ::bitset.__and__\n  and two bits
+.{ Example:
+    aya> [1 0 0 1] bitset! [1 1 0 0] bitset! &
+    [ 1 0 0 0 ]bitset!
+.}
+def bitset::__and__ {other self,
+    other.bits self.bits {&}.&
+    self.M.fromlist
+}
+
+
+.#? ::bitset.__len__\n  the size of the bitset
+.{ Example:
+    aya> [1 1 0 0] bitset! E
+    4
+    aya> [1 1 0 0 1 1 0 0] bitset! E
+    8
+.}
+def bitset::__len__ { .bits E }
+import ::color
+import ::image
+
+export ::canvas
+
+class canvas
+
+def canvas::__init__ {params::dict self : color^,
+
+    .# Default values
+    {,
+        400 :width
+        400 :height
+        "Canvas" :name
+        0 :autoflush
+        0 :show
+        color.colors.white :bg
+        color.colors.black :fg
+        params W
+    }:params;
+
+    params.width self.:width;
+    params.height self.:height;
+
+    .# Input
+    [-1 -1] self.:_last_mouse_pos;
+
+    .# ::new params 0 :{graphics.MG} self.:id ;
+    params :{graphics.new} self.:id ;
+}
+
+def canvas::__str__ {self,
+    "<canvas($(self.id))>"
+}
+
+(canvas.__str__.`,0); canvas.:__repr__;
+
+def canvas::delay {self,
+    self._delay_ms 0 > {self._delay_ms$:P :Z} ?
+}
+
+def canvas::line {xa ya xb yb self,
+    .# ::line {, xa:xa ya:ya xb:xb yb:yb } self.id :{graphics.MG} ;
+    xa ya xb yb self.id :{graphics.line}
+}
+
+def canvas::path {xs::list ys::list fill::num self,
+    xs ys fill self.id :{graphics.path}
+}
+
+def canvas::point {x y self,
+    .#::line {, x:xa:xb y:ya:yb} self.id :{graphics.MG} ;
+    x y x y self.id :{graphics.line}
+}
+
+def canvas::circle {x y r self,
+    x y r2* $ 0 self.id :{graphics.ellipse}
+}
+
+def canvas::fillcircle {x y r self,
+    x y r2* $ 1 self.id :{graphics.ellipse}
+}
+
+def canvas::points {points r self,
+    points r2* $ self.id :{graphics.points}
+}
+
+def canvas::set_color {color self,
+    .# ::set_color {, color.r:r color.g:g color.b:b } self.id :{graphics.MG} ;
+    color.r color.g color.b self.id :{graphics.set_color}
+}
+
+def canvas::set_alpha {a self,
+    .# ::set_alpha {, a:a } self.id :{graphics.MG} ;
+    a self.id :{graphics.set_alpha}
+}
+
+def canvas::set_stroke_width {n::num self,
+    n self.id :{graphics.set_stroke_width}
+}
+
+def canvas::cap {,}
+"butt"   canvas.cap.:butt;
+"round"  canvas.cap.:round;
+"square" canvas.cap.:square;
+
+def canvas::join {,}
+"bevel" canvas.join.:bevel;
+"miter" canvas.join.:miter;
+"round" canvas.join.:round;
+
+def canvas::set_stroke {width::num cap::str join::str self,
+    width cap join self.id :{graphics.set_stroke}
+}
+
+def canvas::set_grad {start::list ca::color end::list cb::color cycle::num self,
+    start.[0] start.[1] end.[0] end.[1]
+    ca.r ca.g ca.b ca.a 255*
+    cb.r cb.g cb.b cb.a 255*
+    cycle self.id :{graphics.set_paint_grad}
+}
+
+def canvas::set_bg {color self,
+    .# ::set_bg {, color.r:r color.g:g color.b:b } self.id :{graphics.MG} ;
+    color.r color.g color.b self.id :{graphics.set_bgcolor}
+}
+
+def canvas::save {filename self,
+    .# Convert to string (in case it is a path object)
+    filename P
+    .# Add file extension if it does not exist
+    ".png" filename.in ! {".png"+} ?
+
+    self.id :{graphics.save}
+}
+
+def canvas::close {self,
+    .# ::close {,} self.id :{graphics.MG} ;
+    self.id :{graphics.close}
+}
+
+def canvas::show {self,
+    self.id :{graphics.show}
+}
+
+def canvas::isopen {self,
+    self.id :{graphics.isopen}
+}
+
+def canvas::rect {x y w h self,
+    .# ::rect {, x:x y:y w:w h:h } self.id :{graphics.MG} ;
+    x y w h 0 self.id :{graphics.rect}
+}
+
+def canvas::fillrect {x y w h self,
+    .# ::rect {, x:x y:y w:w h:h 1:fill} self.id :{graphics.MG} ;
+    x y w h 1 self.id :{graphics.rect}
+}
+
+def canvas::clear {self,
+    self.id :{graphics.clear}
+}
+
+def canvas::viewmat {data self,
+    data self.id :{graphics.viewmat}
+}
+
+.# Block until the canvas is closed
+def canvas::wait {self,
+    { 100:Z self.isopen } W
+}
+
+def canvas::move_events {self,
+    self.id :{graphics.move_events}
+}
+
+.# Get the most recent mouse x/y
+.# return [-1 -1] if no updates
+def canvas::mouse_pos {self : move,
+    self.move_events :move;
+    move E 0 > {
+        [move.[-1] :&.x\.y] self.:_last_mouse_pos;
+    } ?
+    self._last_mouse_pos
+}
+
+def canvas::pressed_buttons {self,
+    self.id :{graphics.pressed_buttons}
+}
+
+def canvas::typed_chars {self,
+    self.id :{graphics.typed_chars}
+}
+
+def canvas::pressed_keys {self,
+    self.id :{graphics.pressed_keys}
+}
+
+def canvas::text {self,
+    self.id :{graphics.text}
+}
+
+def canvas::get_pixels {self : data image^,
+    self.id :{graphics.get_pixels} :data;
+    data.data data.width data.height image!
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# colors.aya
+.# Defines both color and colors types
+
+.{? class: color
+    A module for manipulating and printing colors in Aya
+.}
+class color
+export ::color
+
+
+.#
+.# Constructors
+.#
+
+def color::__init__ {r::num g::num b::num self,
+    [[r g b], .round 0 255 .clip] ~
+    self .:b .:g .:r ;
+    1.0 self.:a;
+}
+
+
+def color::newhex { color ,
+    0 dot_i '#= {V;} ? .# Strip leading '# if it exists
+    16 2 .& 24 .> [3 8] L #{2 10 .&} ~ color!
+}
+
+
+def color::newhsv { color,
+    color.hsvtorgb~ color!
+}
+
+def color::fromstr { s::str color,
+    s :{color.fromstr} color.fromdict
+}
+
+def color::fromdict { d::dict color ,
+    d.r d.g d.b color!
+}
+
+
+.#
+.# Overloads
+.#
+
+def color::__repr__ {self,
+    "($(self.r) $(self.g) $(self.b)) color!"
+}
+
+
+def color::__str__ {self,
+    "($(self.r) $(self.g) $(self.b)) color!"
+}
+
+
+.#
+.# Math
+.#
+
+.#? ::color ::color *\n  multiply two colors
+def color::__mul__ {other self
+    other.rgbf self.rgbf * 255* ~ self.M!
+}
+
+
+.# ::color N *\n  multiply a color by a value
+def color::__rmul__ {self n,
+    self.rgbf n * 255* :#{0 255 .clip} ~ self.M!
+}
+
+
+.#
+.# Conversions
+.#
+
+.#? ::color.rgbf\n  return a list of RGB values represented as floats from 0.0 to 1.0
+def color::rgbf {self, [self.r self.g self.b] 255 / }
+
+
+.#? ::color.rgb\n  return a list containing red, green, and blue values respectively
+def color::rgb {self, [self.r self.g self.b]}
+
+
+.#? ::color.hex\n  return a hexadecimal string representation of the color
+def color::hex {.rgb #{10 16 .& 2 '0 @.lpad}W}
+
+
+.#? ::color.hsv\n  return a list containing hue, sat, and val respectively
+def color::hsv {self, self.rgb255/~ self.M.rgbtohsv}
+
+
+.#
+.# Interpolation
+.#
+
+.#? ::num ::color ::color.grad\n  creates a gradient of rgb lists from color1 to color2
+def color::grad {n::num begin::color self,
+    [ [begin.rgb self.rgb, [2| n] .R .\]~, self.M!]
+}
+
+.#? ::color ::color color.mid\n  returns the color in between color1 and color2 using rgb
+def color::mid {3@@\.grad 1I}
+
+
+.#? [::color] N color.multigrad\n  compute a linear gradient with resolution N between each color
+def color::multigrad {l n,
+    [l {a b, n a b .grad B} / ; ].F
+}
+
+.#? N ::color.hueshift\n  shift hue by N degrees
+def color::hueshift {n self,
+    self.hsv $\; V n + 360 :% \J ~ self.M.newhsv
+}
+
+
+.#
+.# Static conversion utilities
+.#
+
+.#? NNN color.hsvtorgb\n  convert h s v (0-360,0-1,0-1) color to hsv
+def color::hsvtorgb {h s v color : hi p q t ff,
+    .# no saturation, just greyscale
+    s 0 = {
+        [v v v]
+    } {
+        .# Compute hue index
+        .# floor -> mod 360 -> /60 (hh) -> floor (hi)
+        h 360 :% 60 /:hh;
+        hh .\ :hi;
+
+        hh hi - :ff; .# fractional part
+
+        v 1 s - * :p;
+        v 1 s ff * - * :q;
+        v 1 s 1 ff - * - * :t;
+
+        [
+            [v t p]
+            [q v p]
+            [p v t]
+            [p q v]
+            [t p v]
+            [v p q]
+        ] hi I
+    } .?
+
+    255* :#{.round}
+}
+
+
+.#? NNN color.rgbtohsv\n  convert r g b color to hsv\n  r,g,b values are from 0 to 1
+def color::rgbtohsv {r g b color : h s v delta maxv minv,
+    [r g b].min:minv;
+    [r g b].max:maxv;
+    maxv:v;
+    maxv minv-:delta;
+
+    maxv 0 =! {
+        r maxv = {
+            g b- delta/
+        } {
+            g maxv = {
+                b r- delta/ 2+
+            } {
+                r g- delta/ 4+
+            } .?
+        } .? 60* :h;
+
+        h 0< {h 360+:h;} ?
+
+        delta maxv/:s;
+    } {
+        0:s;
+        -1:h;
+    } .?
+    [h s v]
+}
+
+
+.{? module: colors
+    The colors module defines several color objects. For example:
+      colors.red
+      colors.aqua
+      colors.raspberry
+.}
+module colors
+
+{,
+    :{color.name_list} :# {color_name : color_dict,
+        color_name :{color.fromstr} :color_dict;
+        color_dict.r color_dict.g color_dict.b color! color_name :=
+    }
+}:named_colors;
+
+.# Add all named colors to the colors module
+colors named_colors .+
+
+72  72  68  color! colors.:fg;    .# Aya GUI foreground color
+39  40  34  color! colors.:bg;    .# Aya GUI background color
+
+def colors::Q {
+    ;255Q 255Q 255Q color!
+}
+
+.# Add the colors module as a submodule of color
+def color::colors colors
+module csv
+export ::csv
+
+def csv::parse {dlm : rgx,
+    "(?<=^|$dlm)(\"(?:[^\"]|\"\")*\"|[^$dlm]*)" :rgx; .#"
+    '\n' S :# {line,
+        line.trim :line;
+        line rgx & :#{.trim .rmquote .!}
+    }
+}
+
+def csv::open {f : csv^,
+    fP G "," csv.parse
+}
+
+def csv::read { arg : csv^ ,
+    {
+        (arg :T ::str =) {
+            .# convert to dict
+            {, arg :filename }
+        } (arg :T ::dict =) {
+            arg
+        } {
+            "csv.read: Unsupported arg type $(arg:T). Must be ::str or ::dict" .D
+        }
+    } :?
+
+    csv._read_kw
+}
+
+def csv::_read_kw {kwargs::dict : csv^
+                                clabel(1)
+                                rlabel(nil)
+                                filename(nil)
+                                csv_str(nil)
+                                dlm(",")
+                                data
+                                colnames(nil)
+                                rownames(nil),
+    kwargs ~
+
+    (csv_str nil = filename nil = &) {"csv.read: Must provide either filename or csv_str" .D} ?
+
+    .# Open the file and read into data
+    filename nil =! {filenameP G :csv_str;} ?
+
+    csv_str dlm csv.parse :data;
+
+    .# Attempt to auto-detect rlabel if it is not specified
+    rlabel nil = {
+        data.[0].[0] "" = {
+            1 :rlabel;
+        } {
+            0 :rlabel;
+        } .?
+    } ?
+
+    .# CSV has column headers
+    clabel {
+        data V :colnames; ;
+        .# If there are row labels, the first entry is for the index colum
+        rlabel {colnamesV;:colnames;} ?
+    } ?
+
+    rlabel {
+        data :#{V\;} :rownames;
+    } ?
+
+    {,
+        data:data
+        colnames:colnames
+        rownames:rownames
+    }
+}
+
+.#? list sep na csv.dumps\n  convert a 2d list to a csv string
+def csv::dumps {list sep na,
+    list :# {
+        :#{
+            .# If it is na, make it emptystr
+            :& na = {;""} ?
+            .# If it is a string, surround with quotes
+            :& P \ ::str :@ {"\""+ "\""\+} ?
+        }
+        sep %
+    } "\n" %
+}
+
+
+import ::csv
+
+class dataframe
+export ::dataframe
+
+def dataframe::__init__ {kwargs::dict self :
+        data(nil)
+        colnames(nil)
+        index(nil),
+
+    kwargs ~
+
+    [] self.:_colnames;
+    [] self.:_index;
+    [] self.:_data;
+
+    .# Create using data
+    data nil =! {:numrows numcols,
+        data E :numrows;
+        data .TE :numcols;
+        data self.:_data;
+
+        .# Column names
+        colnames nil = {
+            numcols self.M._gen_colnames
+        } {
+            colnames
+        } .? self.:_colnames;
+
+        .# Row names
+        index nil = {
+            numrows .R
+        } {
+            index
+        } .? self.:_index;
+    } ?
+
+    self._check_size
+}
+
+def dataframe::_check_size {self,
+    self._dataE self._indexE = ! {
+        "dataframe!: data size ($(self._dataE)) and index length ($(self._indexE)) do not match" .D
+    } ?
+
+    self._data.TE self._colnamesE = ! {
+        "dataframe!: data num cols ($(self._data.TE)) and length of colnames ($(self._indexE)) do not match" .D
+    } ?
+}
+
+def dataframe::_gen_colnames {n::num cls,
+    n 26 :< {
+        ['a $nV+] R#P
+    } {
+        n 26- :n;
+        "az"R#P
+        n 26 .% 'a$@+ :J R "az"R {\P+}.pu #~ n .< :J
+    } .?
+}
+
+.# CSV Utils
+.###########
+
+def dataframe::from_csv {csv_dict cls,
+    {,
+        csv_dict.data :data;
+        csv_dict.rownames :index;
+        csv_dict.colnames :colnames;
+    } dataframe!
+}
+
+def dataframe::read_csv {arg cls: dataframe^ csv^ ,
+    .# csv.read takes a string or a kwargs dict
+    arg csv.read dataframe.from_csv
+}
+
+def dataframe::to_csv { kwargs self : csv^ noindex(0) colnames(1) sep(","), kwargs ~
+    self._data 
+    colnames { self._colnames A \ J } ?
+    noindex! { 
+        self._index
+        colnames {[""] \ J} ?
+        \ {J} .&
+    } ?
+    sep nil
+    csv.dumps
+}
+
+.# Indexing
+.##########
+
+def dataframe::_get_col_index {colname self,
+    colname :T ::sym = {colname :C :colname; } ?
+    self._colnames colname N\; :colindex;
+    colindex 0 < {
+        "Column $colname not found" .D
+    } ?
+    colindex
+}
+
+def dataframe::_get_col {colname self : colindex,
+    colname self._get_col_index :colindex;
+    self._data :# { colindex I }
+}
+
+def dataframe::_numgetindex {index::num self : dataframe^,
+    {,
+        [self._data.[index]]  :data;
+        [self._index.[index]] :index;
+        self._colnames :colnames;
+    } dataframe!
+}
+
+def dataframe::__getindex__ { index self : dataframe^,
+    {
+        (index :T ::num =) {
+            index self._numgetindex
+        } (index :T ::str =) {
+            index self._get_col
+        } {
+            "Unsupported index: $index" .D
+        }
+    } :?
+}
+
+.{
+    aya> df
+        A B C
+    0 | 1 2 3
+    1 | 4 5 6
+    2 | 7 8 9
+    aya> df.row[1]
+        A B C
+    0 | 4 5 6
+    aya> df.row[[1 2]]
+        A B C
+    0 | 4 5 6
+    1 | 7 8 9
+.}
+def dataframe::row {(1 hold)({self index : data,
+    self._data.[index~]:data;
+    [ index~ :T ::num = { [data]:data } ? ];
+
+    {, self._colnames:colnames data:data } dataframe!
+})}
+
+
+.{
+    aya> df
+        A B C
+    0 | 1 2 3
+    1 | 4 5 6
+    2 | 7 8 9
+    aya> "C" {5>} df.filter_on_col
+        A B C
+    0 | 4 5 6
+    1 | 7 8 9
+.}
+def dataframe::filter_on_col {column condition self : colindex,
+    column self._get_col_index :colindex;
+    self.row[ { .[colindex] condition } ]
+}
+
+
+def dataframe::nrows {self,
+    self._data E
+}
+
+def dataframe::ncols {self,
+    self._data.[0] E
+}
+
+def dataframe::shape {self,
+    [self.nrows self.ncols]
+}
+
+def dataframe::colnames {self,
+    self._colnames
+}
+
+def dataframe::rows {self,
+    self._data
+}
+
+
+.# Serialization / Output
+.########################
+
+def dataframe::__str__ {self : max_idx_len,
+    .# find longest index name
+    self._index #{PE} .max :max_idx_len;
+    .# pad indices to lo
+    self._index :#{P max_idx_len .> " |" +}
+    .# Zip the index and the data along each row
+    self._data {J}.&
+    .# Add a "" to the front for the index column
+    "" self._colnames#P J
+    .# Add the colum as the first elemnt in the list
+    A\J
+    .# Convert to a pretty matstr
+    .matstr
+}
+
+def dataframe::to_html {kwargs::dict self : noindex(0) data style("") border(0),
+    kwargs ~
+    self._data :data;
+    noindex ! {
+        self._index self._data {J} .& :data;
+    } ?
+
+    [] :out;
+    "<table style=\"$style\" border=\"$border\">" out.B;
+    data :# {row,
+        "<tr>" out.B;
+        row :# {x, "<td>$x</td>" out.B } ;
+        "</tr>" out.B;
+    } ;
+    "</table>" out.B;
+
+    out W
+}
+
+def dataframe::_repr_lines {s::str cls : lines,
+    s.lines :lines;
+    lines E 24 > {
+        [lines 10 .<~ "..." lines 10 .>~]"\n" %
+    } {
+        s
+    } .?
+}
+
+
+def dataframe::__repr__ {self : dataframe^,
+    self.__str__ dataframe._repr_lines
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# date.aya
+.# Defines the date type
+
+.{? type: date
+    The date type provides operations for accessing date and time variables.
+.}
+
+export [::date ::dates ::dateunit]
+
+{,
+
+    ::date :__type__;
+    1 :__pushself__;
+
+    {{,M$:ms} date :M}:now;
+
+    .# {in meta, [
+    .#     in:T ::num = {{,in:ms} meta :M} ?
+    .#     in:T ::str = {{,in "yyyy-MM-dd" :{date.parse}:ms} meta :M} ?
+    .#     {"Expected S|D, recieved: $in".D}
+    .# ].S }:__new__;
+
+    {in meta,
+        {
+            (in :T ::num =) {
+                {, 
+                    in:ms
+                } meta :M
+            } (in :T ::str =) {
+                {, 
+                    in "yyyy-MM-dd" :{date.parse} :ms;
+                } meta :M
+            } {
+                "Expected ::str or ::num. recieved: $in" .D
+            }
+        } :?
+    }:__new__;
+
+    {.ms "MMM dd, yyyy h:mm:ss a" :{date.format}}:__repr__;
+    {.__repr__}:__str__;
+
+    {.ms :{date.desc}.day_of_week}:dayofweekid;
+    {.ms :{date.desc}.day_of_week dates.weekdays\V I}:dayofweek;
+    {.ms :{date.desc}.day_of_week dates.weekdaysabb\V I}:dayofweekabb;
+    {.ms :{date.desc}.year}:year;
+    {.ms :{date.desc}.month}:monthid;
+    {.ms :{date.desc}.month dates.monthnames\I}:month;
+    {.ms :{date.desc}.month dates.monthsabb\I}:monthabb;
+    {.ms :{date.desc}.day_of_month}:dayofmonth;
+    {.ms :{date.desc}.hour}:hour:h;
+    {.ms :{date.desc}.minute}:min:m;
+    {.ms :{date.desc}.second}:sec:s;
+    {.ms"a":{date.format}}:ampm;
+
+    {self unit,
+        self.ms unit.ms + date!
+    }:__radd__;
+
+    {self unit,
+        self.ms unit.ms - date!
+    }:__rsub__;
+
+    {.ms}:__sort__;
+
+    .# Parse Functions
+    {"MM/dd/yy" :{date.parse}}:parsemdy;
+
+    .# String functions
+    {.ms "MM/dd/yy"   :{date.format}}:mmddyy;
+    {.ms "MM/dd/yyyy" :{date.format}}:mmddyyyy;
+    {.ms "hh:mm aa"   :{date.format}}:timestr;
+
+}:date;
+
+.#? dateunit\n  static namespace defining units related to dates
+{,
+    [
+        ["year" 31536000000]
+        ["month" 2628000000]
+        ["week" 604800000]
+        ["day" 86400000]
+        ["hour" 3600000]
+        ["minute" 60000]
+        ["second" 1000]
+    ]:units;
+
+    units # {u : name conv,
+        u0I:name;
+        u1I:conv;
+        {,
+            1 :__pushself__;
+            {n::num meta, {,n:n} meta :M}:__new__;
+            {.n x +} {, " dates.$name":x} .+ :__repr__;
+            {.n conv*}.use[::conv]:ms;
+            {date.__radd__.`~}:__add__;
+            {date.__rsub__.`~}:__sub__;
+        } name:S := ;
+    };
+}:dateunit;
+
+.#? dates\n  static namespace for date related variables
+{,
+    .# Units
+    dateunit.units # {u : name,
+        u0I:name;
+        "{dateunit.$name!}:$name"~
+    };
+
+    .# Week Day Names
+    [
+        "Sunday" "Monday" "Tuesday" "Wednesday"
+        "Thursday" "Friday" "Saturday"
+    ]:weekdays;
+    ["Sun" "Mon" "Tue" "Wed" "Thr" "Fri" "Sat"]:weekdaysabb;
+
+    .# Month Names
+    [
+        "January" "February" "March" "April"
+        "May" "June" "July" "August"
+        "September" "October" "November" "December"
+    ]:monthnames;
+
+    [
+        "Jan" "Feb" "Mar" "Apr" "May" "Jun"
+        "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"
+    ]:monthsabb;
+
+}:dates;
+
+{date.now}:now;
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# dialog.aya
+.# Interface to the dialog operator :{dialog.legacy}
+
+.{? dialog
+    various dialogs and windows
+    all functions in this module are shortcuts for the :{dialog.legacy} operator
+.}
+
+module dialog
+export ::dialog
+
+
+.#? ::str dialog.requeststr\n  request a string from the user
+def dialog::getstr {question,
+    question :{dialog.getstr}
+}
+
+.#? ::str dialog.requestnum\n  request a number from the user
+def dialog::getnum {question,
+    question :{dialog.getnum}
+}
+
+.#? ::str dialog.alert\n  display a dialog box with a given message
+def dialog::alert {text,
+    text "Aya" ::plain :{dialog.alert}
+}
+
+.#? ::str dialog.warning\n  display a warning message with the given message
+def dialog::warning {text,
+    text "Aya" ::warn :{dialog.alert}
+}
+
+.#? ::str dialog.error\n  display an error message with the given message
+def dialog::error {text,
+    text "Aya" ::error :{dialog.alert}
+}
+
+.#? ::str dialog.warn\n  display a warning message with the given message
+def dialog::warn {text,
+    text "Aya" ::warn :{dialog.alert}
+}
+
+.#? ::str ::str ::str dialog.yesno\n  display a dialog box with the question ::str1. ::str2 and ::str3 return true and false respectively
+def dialog::yesno {question yes no,
+    question [yes no] "Aya" ::plain :{dialog.confirm}
+}
+
+.#? message::str dialog.confirm\n  Return 1 if the user presses okay and 0 otherwise
+def dialog::confirm {question,
+    question ["Okay" "Cancel"] "Aya" ::plain :{dialog.confirm}
+}
+
+.#? ::str ::list dialog.buttons\n  display a dialog box with buttons for each of the options in L. Returns the item in the list as a string.
+def dialog::buttons {question options::list,
+    question options "Aya" ::question :{dialog.buttons}
+}
+
+.#? ::str ::list dialog.dropdown\n  display a dialog box with a dropdown selection of the options in L
+def dialog::dropdown {question options::list,
+    question options "Aya" ::question :{dialog.dropdown}
+}
+
+.#? dialog.choosefile\n  open a file selection window. return the full path of the selected file
+def dialog::choosefile {
+    :{dialog.choosefile}
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# docs.aya
+.# Basic documentation for Aya that appears in the quicksearch
+
+.{? docs: comments
+   .# this is a line comment
+   .{
+     this is a block comment
+   .\}
+
+   .#? this line will be added to interactive help
+   .{?
+      these lines will be
+      added to interactive help
+   .\}
+.}
+
+.{? docs: argument type key
+  ::num - num
+  ::block - block
+  ::char - character
+  ::str - string
+  ::any - any
+  ::dict - dict
+  ::sym - symbol
+.}
+
+.{? docs: ranges
+  ranges are used in list comprehension notation for creating quick lists
+  they can be built from all number types, characters, strings, and list literals
+  examples:
+   [2,] => [1 2]
+   [2 5,] => [2 3 4 5]
+   [0 2 6,] => [0 2 4 6]
+   ['a 'c,] => [a b c]
+   [\"hi\",] => [h i]
+   [[1 2],] => [1 2]
+.}
+
+.{? docs: list comprehension
+  a range is always required. map and filter blocks are not.
+
+  syntax:
+  [
+    <range>,
+    <map>,
+    <filter1>,<filter2>,..<filterN>
+  ]
+.}
+
+.{? docs: blocks
+  blocks are containers for a group of operations and a list of arguments.
+  syntax:
+    {<expr>}
+    {<args> , <expr>}
+    {<args> : <locals> , <expr>}
+    {: <locals> , <expr>}
+.}
+
+.{? docs: dictionaries
+  dicts are created using the following syntax
+  {, val1:key1 val2:key2 ... valN:keyN}
+.}
+
+.{? docs: special characters
+  unicode: '\U263A' => \{U263A}
+  named:   '\in' => \{in}
+  strings: "I \\{heart} element" => "I \{heart} element"
+.}
+
+.{? docs: negative numbers
+  use :<number> or :-<number> for number literals only
+  use the (T) operator to negate a variable
+.}
+
+.{? docs: list grabbing
+  List literals can grab items from the outer stack
+  Use the format `... [num| ...]` where `num` is an num literal
+  ex: 1 2 [1| 7 6] => 1 [2 7 6]
+  ex: 4 [1|10,] => [4 5 6 7 8 9 10]
+.}
+
+.{? docs: constants
+  use `:Nc` where N is:
+  0: pi
+  1: e
+  2: double max
+  3: double min
+  4: NaN
+  5: +inf
+  6: -inf
+  7: int max
+  8: int min
+  9: system file separator
+  10: system path separator
+  11: char max value
+  12: system line separator
+.}
+{f: argtypes args d,
+    {,}:d;
+    f.`.M W
+    args :# {k,
+        k :C argtypes.[k] "" arg! k d :D
+    };
+    d
+}:arginfo;
+
+
+
+class docstr
+
+def docstr::__init__ {name string::str self,
+    .# If single item in a list, unwrap the list
+    name :T ::list = {
+        name E 1 = {
+            name.[0] :item;
+        } ?
+    } ?
+
+    {
+        .# If list, use module and name
+        name :T ::list = {
+            name.[0] :module;
+            name.[1] :id;
+        } {
+            nil :module;
+            name :id;
+        } .?
+
+        id :T ::sym = "" assert
+    } {err,
+        err :P
+        "docstr name must be either a list containing a module and a symbol OR a single symbol" .D
+    } .K
+
+    module self.:_module;
+    id self.:_name;
+    string self.:_full_str;
+
+    {,} self.:sections;
+    { self._parse self.:sections; } {err, "Error parsing docstr:\n$err" .D} .K
+
+    {,} self.:_args;
+    self.sections ::args H {
+        self._parseargs self.:_args;
+    } ?
+}
+
+def docstr::_parse {self : m("@.+:\n") d keys vals,
+    self._full_str m & #{.trim B; V;} "desc" \J :keys;
+    self._full_str "@.+:\n" S :# {.trim.lines :# {.trim"\n"+}W.trim}:vals;
+
+    {,}:sections;
+    vals keys {sections :D} .&;
+
+    sections
+}
+
+.# Inner class
+docstr {, class arg} .+;
+
+def (docstr.arg)::__init__ {name desc self,
+    name.[0] ': = self.:is_stack_arg;
+
+    self.is_stack_arg {
+        "-"     self.:name;
+        name :S self.:type;
+    } {
+        name    self.:name;
+        ::any   self.:type;
+    } .?
+
+    desc.trim self.:desc;
+}
+
+def (docstr.arg)::__repr__ {self : n l,
+    0 self.show
+}
+
+def (docstr.arg)::show {margin self : n l pad,
+    self.is_stack_arg {
+        "$(self.type): "
+    } {
+        self.type ::any = {
+            "$(self.name): "
+        } {
+            "$(self.name) ($(self.type)): "
+        } .?
+    } .?
+
+    .E :n;
+    " " margin LW :pad;
+    self.desc.lines :#{
+        " "nLW\+"\n"+ pad\+
+    }W.trim + pad \+
+}
+
+def docstr::_parseargs {self : matcher("(?m)^(:{2}|)[a-z]+:"),
+    .# Names
+    self.sections.args matcher & :#{B;}
+    .# Desc
+    self.sections.args matcher S V;
+    .# Create list of arg objects
+    {J}.& :# {~ self.M.arg!}
+}
+
+def docstr::owner {self,
+    self._module nil = {
+        {
+            self._name ~
+        } {;
+            "docstr owner ($(self._name)) is not defined" .D
+        } .K
+    } {
+        {
+            self._module self._name I
+        } {;
+            "docstr owner ($(self._module_name).$(self._name:C)) is not defined" .D
+        } .K
+    } .?
+}
+
+
+def docstr::_getargtypes {self : at f,
+    .# Get arg types from block
+    self.owner:f;
+
+    f.` :T ::block = {
+        f.`.M.argtypes:at;
+        .# If the arg is not a stack arg, copy over its type
+        self._args :# {a,
+            a.is_stack_arg! {
+                {
+                    at.[a.name] a.:type;
+                } {err,
+                    "[warning] in docstr: block does not have arg ::$(a.name)":P
+                    self._full_str :P
+                } .K
+            } ?
+        };
+    } ?
+}
+
+def docstr::finalize {self,
+    self._getargtypes
+}
+
+def docstr::_module_name {self,
+    .# Try to get the name of the module
+    self._module ::__type__ H {
+        self._module.__type__ :C
+    } {
+        "<module>"
+    } .?
+}
+
+def docstr::_get_name {self,
+    self._module ::__type__ H {
+        self._module.__type__ :C "." self._name :C ++
+    } {
+        self._name :C
+    } .?
+}
+
+def docstr::_get__doc__ {self,
+    d._module nil = {
+        .# Access from scope
+        {__doc__;} {;{,}:__doc__;} .K
+
+        __doc__
+    } {
+        .# Access from module
+        {d._module.__doc__;} {; {,} d._module.:__doc__;} .K
+
+        d._module.__doc__
+    } .?
+}
+
+def docstr::_padlines {n s,
+    s.lines :#{" "nLW\+"\n"} W
+}
+
+def docstr::show {self : builtin docstr^,
+    [::desc ::args ::example]:builtin;
+
+    [
+        self._get_name
+        .E "-" \LW
+        self.sections.desc
+        ""
+        "args:"
+        self._args #{2 \ .show}~
+        ""
+        "example:"
+        2 self.sections.example docstr._padlines
+        self.sections :K .[{builtin \ H}] :# {k,
+            k :C
+            2 self.sections.[k] docstr._padlines
+        } ~
+    ] #'\n'+ W .trim
+}
+
+
+def docstr::add_to_help {self,
+    [".{?" self.show ".}"]W~
+}
+
+def docstr::to_html {self,
+    [
+        "<h2>$(self._get_name)</h2>"
+        "<br />"
+        "<p>$(self.sections.desc)</p>"
+        "<h4>Args:</h4>"
+        "<ul>"
+        self._args
+    ] #'\n'+ W .trim
+}
+
+
+{(2 hold)({:d,
+    docstr! :d:dd;
+
+    .# Add the doc to the module (or global scope)
+    .# Create __doc__ if it does not yet exist
+    d d._name d._get__doc__ :D ;
+    d.add_to_help
+})}:doc;
+
+def docstr::__repr__ {self,
+    "<docstr for $(self._name :C)>"
+}
+
+
+{(1 hold)({x,
+    x :T ::list = {
+        x.[0].__doc__.[x.[1]] .show :P
+    } ?
+})}:help;
+
+.{
+struct example {a b}
+
+doc [example::variable] """
+    Some description of the variable or function
+    Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+    Aliquam pulvinar, metus et pretium malesuada, risus
+    risus pulvinar lacus, ut molestie neque sapien at felis.
+    (by default, this text ends up in the "desc" key
+
+@args:
+    ::num: the first stack arg
+    ::list: the second stack arg
+    a: what a is for
+        more info about a
+  more about a
+  b: what b is for
+
+@example:
+    aya> {x, a x +}.capture[::a]
+    {x : a , a x + }
+    aya> {x, a x +}.capture[::a] :f
+    {x : a , a x + }
+    aya> 5 f
+    6
+    aya> 2:a
+    2
+
+@other_key:
+    more text that will end up in the above key
+"""
+def example::variable {a b::num, }
+.}
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Defines the enum keyword which allows for
+.#  easy creation of enum classes and symbol groups
+
+export ::enum
+
+{class::sym enums::list : dict meta,
+
+    .# The metatable for each enum member
+    {,
+        class :__type__;
+        1 :__pushself__;
+        {self, "$(self.__type__:C).$(self.name:C)"}:__str__:__repr__;
+        {other self,
+            other.__type__ self.__type__ =
+            other.name self.name = &
+        }:__eq__;
+    }:meta;
+
+    .# The enum dict
+    {, class:name }:dict;
+
+    .# Add each element to the enum dict
+    enums # {e,
+        {,e:name} meta :M e dict :D ;
+    };
+
+    .# Create and add the metatable for the enum
+    dict {,
+        1 :__pushself__;
+        ::enum :__type__;
+        {.name:C}:__repr__:__str__;
+    } :M
+
+    .# Assign the name of the enum to the enum class
+    class := ;
+}:_enum_impl;
+
+
+.# enum macro
+
+{ : _enum_impl(_enum_impl.`),
+    { : _enum_impl^ , :&.[0]:S~ \.[1]~.*:#{:S~} _enum_impl } 2 :`
+}:enum;.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# golf.aya
+.# Defines operators and variables useful for golfing
+
+exportall
+
+.# Import standard library
+:{sys.ad} "/std"+ :{sys.readdir}:# {".aya" S W :S} :# {name,
+    name ::golf = ! {
+        import name
+    } ?
+} ;
+
+.# Standard library shortcuts
+{,
+    0 .M :num;
+    'x.M :char;
+    [].M :list;
+    "".M :str;
+
+    num.clip.`   num.:c;
+    num.digits.` num.:d;
+    num.round.`  num.:r;
+    num.bits.`   num.:b;
+    num.bytes.`  num.:a;
+
+    char.upper.` char.:u;
+    char.lower.` char.:l;
+
+    str.upper.`  str.:u;
+    str.lower.`  str.:l;
+    str.trim.`   str.:t;
+    str.lines.`  str.:n;
+
+    list.shuffle.` list.:q;
+    list.max.` list.:u;
+    list.min.` list.:l;
+    list.irange.` list.:i;
+}
+
+matrix.rotate_cols.` matrix.:n;
+matrix.rotate_rows.` matrix.:z;
+
+.# Single letter variables
+
+1:a;
+2:b;
+3:c;
+10:d;
+:1c:e;
+dataframe:f;
+.#:g;
+.#:h;
+.#:i;
+.#:j;
+1000:k;
+{[]}:l;
+matrix:m;
+'\n':n;
+.#:o;
+:0c :p;
+.#:q;
+{.R}:r;
+.#:s;
+.#:t;
+.#:u;
+.#:v;
+-1 :w;
+0:x;
+0:y;
+0:z;
+
+
+.# Single byte variables
+
+{=!} "\{not}" := ;
+{:P} "\{thorn}" := ;
+{:;:P} "\{THORN}" := ;
+{2^} "\{sup2}" := ;
+.# pop font/back shortcuts
+{B\;} "\{iacute}" := ;
+{V\;} "\{igrave}" := ;
+
+
+.# cdict variables
+{,
+  "()" :"(";
+  "<>" :"<";
+  "/\\":"^";
+  "{}" :"{";
+  "[]" :"[";
+
+  [1 2]  :"½";
+  [1 -1] :"+";
+  [-1 1] :"-";
+  [0 1]  :".";
+  [0 0]  :"0";
+  [1 1]  :"1";
+  [2 2]  :"2";
+  360    :"3";
+  128    :"4";
+  256    :"8";
+
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" :"A";
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" :"B";
+  "BCDFGHJKLMNPQRSTVWXYZbcdfghjklmnpqrstvwxyz" :"C";
+  "012345679" :"D";
+  "0123456789ABCDEF" :"H";
+  :-7s :"P"; .# printable ascii
+  ["QWERTYUIOP" "ASDFGHJKL" "ZXCVBNM"] :"Q";
+  "AEIOUaeiou" :"V";
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_" :"W";
+
+}:__cdict__;
+from ::io import ::path
+
+module image
+export ::image
+
+class image
+
+def image::__init__ {r g b a width height meta self,
+    r self.:r;
+    g self.:g;
+    b self.:b;
+    a self.:a;
+    width self.:width;
+    height self.:height;
+    meta self.:meta;
+}
+
+def image::read {filename cls : img image^ path^,
+    filename :{image.read} :img;
+    img.r img.g img.b img.a img.width img.height img.meta image!
+}
+
+def image::__repr__ {self,
+    "(image $(self.width)x$(self.height))"
+}
+
+def image::write {filename self : path^,
+    self filename :{image.write}
+}
+
+def image::pixels {self,
+    [self.r self.g self.b self.a] .T
+}
+
+def image::channels {self,
+    [self.r self.g self.b self.a]
+}
+export [
+    ::path
+    ::file
+    ::stdout
+    ::stdin
+    ::fileutils
+]
+
+
+class path
+
+.# Create a new path (accepts relative or abs paths)
+.# Custom constructor
+{dir meta : absolute_path(0),
+    .# Already a path?
+    dir:T ::path = {
+        dir
+    } {
+        .# Input is a string?
+        dir:T ::str = {
+            .# If direct path
+            dir meta._isabs ! {
+                0 :absolute_path;
+            } {
+                1 :absolute_path;
+            } .?
+            {,
+                dir meta._split :dirs;
+                absolute_path :is_absolute_path;
+            } meta :M
+        } {
+            "Cannot create path from $dir" .D
+        } .?
+    } .?
+} path.:__new__;
+
+
+.# ::path.isfile\n  Return true if path is file (last item in the path contains a ".")
+def path::isfile {self,
+    self.dirs.[-1] "." H
+}
+
+
+.#? ::str ::path.add\n  append file or dir to path, if path is file, don't change
+def path::__add__ {dir::str self,
+    .# Can only join if the path is not a file
+    self.isfile ! { : newpath ,
+        .# Make a copy of this path
+        self $ :newpath; ;
+        newpath.dirs dir path._split J
+        path._clean newpath.:dirs;
+        newpath
+    } {
+        self
+    }.?
+}
+
+def path::__radd__ {\.__add__}
+
+
+.# String representation of the path
+def path::__str__ {self,
+    self.dirs "/" %
+    self.is_absolute_path self._iswindows ! & {
+        "/" \ +
+    } ?
+    .#self.dirs :9s % self.M.root :9s + \+
+    .#self.isfile ! {:9s +} ?
+}
+
+(path.__str__.`,0); path.:__repr__;
+
+
+.#? ::path.dec\n  Go up a directory
+def path::__dec__ {self,
+    self.dirs B;; self
+}
+
+.#? ::str path.readdir\n  list of file/dir names in the given path
+def path::readdir {path,
+    P :{sys.readdir}
+}
+
+.#? path.working\n  working directory
+def path::working {path,
+    :{sys.wd} path!
+}
+
+.#? path.aya\n  aya directory
+def path::aya {path,
+    :{sys.ad} path!
+}
+
+def path::clean {self,
+    self.dirs self._clean self.:dirs;
+}
+
+
+.#
+.# Private helper methods
+.#
+
+
+.# ::str path.split\n  split a string using the system file sepatator and remove empty dir names
+def path::_split {dir::str path,
+    dir '\\' S #{'/ S ~}
+    .# Remove empties
+    [""] :|
+}
+
+.# dirs::list path._fixhome
+.# If the path list contains a "~"
+.#   find the last "~" and take all directories after it
+def path::_fixhome {dirs::list path,
+    dirs U "~" N    .# Reverse and find the first ~ (aka the last ~)
+
+    .# Does the path contain a "~" ?
+    $ 0 :> {
+        .< U .# Take all directories before the "~" and reverse
+
+        .# Append the home dir to the front
+        path.home.dirs $\;  .# Copy home.dirs
+        \ :J                .# Append to front
+    } {
+        ;U .# Pop the -1 and put the list back
+    } .?
+}
+
+.# ::str path._isabs\n  return true of the given string is an absolute path
+def path::_isabs {p::str path,
+	path._iswindows {
+		p 1 I ': =
+	} {
+		p "/" N0=\;
+	} .?
+}
+
+.# Remove all ".." by traversing the directories
+def path::_clean {dirs::list path : i(0),
+    .# Remove root and self refs (".")
+    dirs [path.root "."] :| :dirs;
+
+    .# If there is a ".." remove the dir before it
+    {{
+        .# If there is a "..",
+        dirs.[iB] ".." = {
+            .# Remove the ".." and the dir before it
+            dirs [i iB] .-;
+            .# Then move the index back 2
+            i2-:i;
+        } ?
+        ::iB
+        i dirs EV <
+    }W}
+    .# If the above code has an error, the path is invalid
+    {; []:dirs;} .K
+    dirs
+}
+
+def path::_iswindows {self,
+	:9s "\\" =
+}
+
+
+
+.#
+.# Constants
+.#
+
+.#? path.root\n  root dir name
+"user.dir" :{sys.getprop} :9s .^ S .[0] path.:root;
+
+
+
+"~" :{sys.resolvehome} path! path.:home;
+
+{, :{sys.wd} path._split :dirs} path :M path.:dfltworking;
+
+
+
+.####################
+.# FILE             #
+.####################
+
+class file
+
+def file::__init__ {filepath type::char  self : path^,
+    .# save a copy of the path
+    filepath path!      self.:path ;
+    .# open the stream
+    self.path P type :{fstream.O} self.:id ;
+}
+
+.#? ::file.close\n  close a file. return 1 is success
+def file::close {self,
+    self.flush;
+    self.id 'c :{fstream.O}
+}
+
+.#? ::file.isopen\n  test if a file stream is open
+def file::isopen {self,
+    self.id 'i :{fstream.O} 0 =!
+}
+
+.#? ::file.isread\n  return 1 if file is an input stream
+def file::isinput {self,
+    self.id 'i :{fstream.O} 1 =
+}
+
+.#? ::file.iswrite\n  return 1 if file is an output stream
+def file::isoutput {self,
+    self.id 'i :{fstream.O} 2 =
+}
+
+.#? ::file.print\n  print to a file if it is an input stream
+def file::print {s self,
+    sP self.id :{fstream.O}
+}
+
+.#? ::file.println\n  print string followed by a newline tp a file
+def file::println {s self,
+    sP "\n" + self.id :{fstream.O}
+}
+
+.#? ::file.readchar\n  read the next char in the file, return -1 if EOF or invalid stream
+def file::readchar {self,
+    self.id 'b :{fstream.O}
+}
+
+.#? ::file.readline\n  read the next line in the file, return 0 is EOF or invalid stream
+def file::readline {self,
+    self.id 'l :{fstream.O}
+}
+
+.#? ::file.readall\n  read all text in the stream, return "" if EOF and 0 if invalid stream
+def file::readall {self,
+    self.id 'a :{fstream.O}
+}
+
+.#? ::file.lines\n  return a list containing the lines in the file
+def file::lines {self,
+    self.id 'a :{fstream.O} '\n' S
+}
+
+.#? ::file.flush\n  flush an output stream
+def file::flush {self,
+    self.id 'f :{fstream.O}
+}
+
+def file::__repr__ {self,
+    [
+        self.isopen
+            {"<stream(" self.isinput {"R"} {"W"} .? "):"}
+            "<closed:"
+        .?
+        self.path P ">"
+    ]W
+}
+
+
+.{ Example:
+
+    "file.txt" 'r file!.do {f,
+        f.readll :P
+    }
+.}
+def file::do {self,
+    {:self^, ~ self._do} 0 :`
+}
+
+.# Helper function for file.do
+def file::_do {blk__::block self__,
+    {
+        self__ blk__
+    } {e,
+        self__.close;
+        e .D .# re-throw
+    } .K
+    self__.close;
+}
+
+.#? stdin::file\n  standard input stream
+{,
+    1:id;
+
+    .# Overloads
+    1:isopen;
+    0:close;
+    1:isread;
+    0:iswrite;
+    "stdin":path;
+} file :M :stdin;
+
+.#? stdout::file\n  standard output stream
+{,
+    2:id;
+
+    .# Overloads
+    1:isopen;
+    0:close;
+    1:iswrite;
+    0:isread;
+    "stdout":path;
+} file :M :stdout;
+
+
+
+.# dummyfile for testing opening and closing of input streams
+
+class dummyfile
+export ::dummyfile
+
+def dummyfile::__init__ {name self,
+    "opened dummy file '$name'" :P
+    name self.:name;
+}
+
+def dummyfile::__repr__ {self,
+    "<dummyfile: $(self.name)>"
+}
+
+def dummyfile::close {self,
+    "closed dummy file '$(self.name)'" :P
+}
+
+dummyfile file.:dummyfile ;
+
+
+{,
+    {path, .# ::path or ::str
+        path P :{fileutils.readallbytes}
+    }:readallbytes;
+
+}:fileutils;
+import ::io
+
+module json
+export ::json
+
+def json::loads {:{json.loads}}
+
+def json::dumps {:{json.dumps}}
+
+def json::load {json_file : file^ json^,
+    json_file :T ::str = {
+        json_file 'r file! :json_file;
+    } ?
+
+    json_file.do {f,
+        f.readall json.loads
+    }
+}
+
+def json::dump {data json_file : file^ json^,
+    json_file :T ::str = {
+        json_file 'w file! :json_file;
+    } ?
+
+    json_file.do {f,
+        data json.dumps f.print;
+    }
+}
+.# This file is a part of Aya: https://github.com/aya-lang/aya
+
+.# la.aya
+.# Defines linear algebra functions
+
+.# Wrapper functions
+{:{la.mul}}:dot;
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# map.aya
+.# Defines the map data structure
+
+.{? class: map
+    The map type is a key-value pair dictionary which supports any
+      and mixed data types as the key.
+.}
+
+class map
+export ::map
+
+def map::__init__ {self,
+    [] self.:keys;
+    [] self.:values;
+}
+
+
+.#? key map.haskey\n  true if map contains key
+def map::haskey {key self,
+    self.keys key H
+}
+
+
+.#? key value self map.put\n  put key value pair in the map
+def map::put {value key self : idx,
+    self.keys key N :idx;;
+    idx 0 < {
+        key self.keys .B;
+        value self.values .B;
+    } {
+        value self.values.:[idx];
+    } .?
+}
+
+
+.#? key ::map.del\n  remove the key value pair from thist list
+def map::del {key self,
+    .# Apply remove code only if it is in the map
+    self.keys key N $ 0 :> {
+        $@\.-;              .# remove from keys
+        self.values\.-;     .# remove from values
+    } {
+        ;;                  .# do nothing, clean stacke
+    } .?
+}
+
+
+.#? key map.getindex\n  get the value for the key in the map
+def map::__getindex__ {key self : idx,
+    self.keys key N :idx;;
+    idx 0 < {
+        "map does not contain key $key" .D
+    } {
+        self.values.[idx]
+    }.?
+}
+
+.#? ::block ::map.__each__\n  apply the block to each key value pair
+.{ Example:
+aya> [[1 "one"][2 "two"]] map.fromlist :m
+{,
+  [ 1 2 ]:keys;
+  [ "one" "two" ]:values;
+}
+aya> m :# {k v, v.upper k m.put}
+aya> m
+{,
+  [ 1 2 ]:keys;
+  [ "ONE" "TWO" ]:values;
+}
+aya> m :# {k v, "$k = $v" :P}
+1 = ONE
+2 = TWO
+.}
+def map::__each__ {blk self,
+    [self.keys self.values] .T :# {~ blk} ;
+}
+
+
+def map::fromlist {list map : m,
+    map!:m;
+    list # {~ \m.put};
+    m
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# math.aya
+.# Essential math functions for Aya
+
+.# Export all variables
+exportall
+
+
+.#############
+.# Constants #
+.#############
+
+
+:1c :e;    .#? euler: euler's constant e
+:0c :pi;       .#? pi:  constant \{pi}
+:4c :nan;      .#? nan:  not a number double literal
+:5c :inf;      .#? inf:  infinity double literal
+:6c :minf;     .#? minf:  minus infinity double literal
+:1r4:fourth;   .# ¼
+:1r2:half;     .# ½
+
+.#? phi: golden ratio (constant)
+.# Compute phi using 2 adjacent fib numbers
+[1000 $B, 1\0{$@+}@%;]$1I\0I/
+:phi;
+
+
+
+
+.########################
+.# Vectorized Functions #
+.########################
+
+
+{.|}:abs;           .#? N abs\n  absolute value
+{1 3/^}:cbrt;       .#? N cbrt\n  cube root
+{./}:ceil;          .#? N ceil\n  ceiling
+{pi*180/}:deg;      .#? N deg\n  convert deg to rad (180° => 3.14..)
+{180*pi/}:rad;      .#? N rad\n  convert rad to deg (pi rad => 180)
+{Me}:exp;           .#? N exp\n  exp(x)
+{M!}:fact;          .#? N fact\n  factorial
+{.\}:floor;         .#? N floor\n  floor
+{ML2ML/}:lg;        .#? N lg\n  base-2 log
+{Ml}:ln;            .#? N ln\n  natural log
+{ML}:log;           .#? N log\n  base-10 log
+{:%}:mod;            .#? N mod\n  modulo
+{Mp}:primes;        .#? N primes\n  returns a list containing the primes up to and including N
+{.!}:signnum;       .#? N signnum \n  returns the sign of a number (1,0,-1)
+{.^}:sqrt;          .#? N sqrt\n  square root
+{.%}:div;           .#? <NN> div\n  integer division
+{%}:rem;            .#? <NN> rem\n  remainder after division
+{PE}:numofdigits;   .#? N numofdignts\n  number of digits in N
+
+.# Binary vectorized functions
+{2^\2^+.^}:hypot;   .#? N hypot\n  hypotenuse function
+{ML\ML\/}:logn;     .#? N logn\n  base-n log\n ex: log base 6 of 10 written as (10 6logn)
+
+
+.###################
+.# List Operations #
+.###################
+
+{:&2^W.^/}:normal;   .#? L<N> normal\n  compute the normal vector of the given list
+{{*}/}:product;     .#? L product\n  product of a list
+{*W}:vdot;           .#? LL vdot\n  vdot product of two vectors
+{2^W.^}:norm;       .#? L norm\n compute the vector norm
+
+
+.#? NN lcm\n least common multiple of two numbers or a list of numbers
+{:& :T ::num = {.-}{{.-}/} .?}:lcm;
+
+.#? NN gcd \n  greatest common divisor of 2 numbers or a list of numbers
+{:& :T ::num = {.+}{{.+}/} .?}:gcd;
+
+.#? L<N> cumsum\n  cumulative summation of a list
+.{
+{list : sum outlist,
+    .# Allocate output list
+    0 listE L :outlist;
+
+    list.irange # {i,
+      list iI sum + : sum;
+      sum outlist i D
+    };
+
+    outlist
+}:cumsum;
+.}
+{l,lER:#{l\.<W}}:cumsum;
+
+
+
+.#? L<N> cumprod\n  cumulative product of a list
+.{
+{list : prod outlist,
+    .# Initialize prod
+    1:prod;
+
+    .# Allocate output list
+    0 listE L :outlist;
+
+    list.irange # {i,
+        list iI prod * : prod;
+        prod outlist i D
+    };
+
+  outlist
+}:cumprod;
+.}
+{l,lER:#{l\.<{*}/}}:cumprod;
+
+
+
+
+
+
+.################
+.# Trigonometry #
+.################
+
+{Ms}:sin;                   .#? N sin \n  sine
+{Mc}:cos;                   .#? N cos \n  cosine
+{Mt}:tan;                   .#? N tan \n  tangent
+{Ms1\/}:csc;                .#? N csc \n  cosecant
+{Mc1\/}:sec;                .#? N sec \n  secant
+{Mt1\/}:cot;                .#? N cot \n  cotangent
+
+{MS}:asin;                  .#? N asin \n  inverse sine
+{MC}:acos;                  .#? N acos \n  inverse cosine
+{MT}:atan;                  .#? N atan \n  inverse tangent
+{1\/MS}:acsc;               .#? N acsc \n  inverse cosecant
+{1\/MC}:asec;               .#? N asec \n  inverse secant
+{1\/MT}:acot;               .#? N acot \n  inverse cotangent
+
+{$Me\TMe- 2/}:sinh;          .#? N sinh \n  hyperbolic sine
+{$Me\TMe+2/}:cosh;          .#? N cosh \n  hyperbolic cosine
+[{$} sinh.` {\}
+     cosh.` {/}].* :tanh;   .#? N tanh \n  hyperbolic tangent
+[sinh.` {1\/}].* :csch;     .#? N csch \n  hyperbolic cosecant
+[cosh.` {1\/}].* :sech;     .#? N sech \n  hyperbolic secant
+[tanh.` {1\/}].* :coth;     .#? N coth \n  hyperbolic cotangent
+
+{$2^1+.^+Ml}:asinh;             .#? N asinh \n  inverse hyperbolic sine
+{$$1-.^\1+.^*+Ml}:acosh;        .#? N acosh \n  inverse hyperbolic cosine
+{$1\+Ml\1\-Ml- .5*}:atanh;      .#? N atanh \n  inverse hyperbolic tangent
+{$1\/\2^1\/1+.^+Ml}:acsch;      .#? N acsch \n  inverse hyperbolic cosecant
+{1\/$$1+.^\1-.^*+Ml}:asech;     .#? N asech \n  inverse hyperbolic secant
+{1\/$1\-Ml\1+Ml\- .5*}:acoth;   .#? N acoth \n  inverse hyperbolic cotangent
+
+
+
+.#? ::list makepoly\n  generate a polynomial function with the given coefficients
+.{ Examples:
+    aya> [1 0 4 5] makepoly :f
+    {[ 3 2 1 0 ] ^ [ 1 0 4 -5 ] * W}
+    aya> 5 f
+    140
+    aya> [2 0] makepoly :double
+    {[ 1 0 ] ^ [ 2 0 ] * W}
+    aya> [4,double]
+    [ 2 4 6 8 ]
+.}
+.# {.E .R U {2, :c ; :p} {p ^ c * W} \ .+}:makepoly;
+{ [1| .E .R U {^} \ {*W} ].* }:makepoly;
+
+
+
+.#############################
+.# Additional Math Functions #
+.#############################
+
+.# BASE
+
+{2 10  .&}:unbit;   .#? L unbit \n  convert a list of bits to a number
+{10 2  .&}:bits;    .#? N bits \n  convert a positive number to a list of bits
+{10 16 .&}:hex;    .#? N hex\n  convert an int into a hex string
+{16 10 .&}:unhex;  .#? S unhex\n  convert a hex string to an int
+
+
+
+.# COMBINATORICS
+
+{G}:isprime;                   .#? N isprime \n  tests a number for primality
+{n r, nM! n r-M!/}:npr;        .#? NN npr\n  permutations
+{n r, nM! n r- M!/ rM!/}:bin;  .#? NN bin\n binomial (combinations)
+
+.#? N divisors \n  returns a list of the numbers factors
+{n, [1 n,, n\:%0=]}:divisors;
+
+.#? N factors\n  compute a number's prime factors
+.# golf: {n,{2to(nV){n\:%0=}.NI$n\/f:J}{n}nGn2<|?}:f;
+{n,
+    .# is the number prime
+    nG n2< |
+
+    .# If the number is prime, return it
+    {[n]}
+
+    .# If the number is not prime, find the
+    .#   next factor
+    {
+        .# Range from 2..ceil(sqrt(n))
+        [2nV.^./]R
+
+        .# Find the next factor
+        {n\:%0=}.N
+
+        .# Append this factor to the list of
+        .#   factors recursively
+        I $n\/ factors :J
+    }
+
+    .?
+}:factors;
+
+.# Generate a normally distributed random number using the Box-Muller transform
+{.Q Ml -2 * .^ :2p .Q * Mc * }:randnorm;
+import ::mp
+
+class matrix
+export ::matrix
+
+.# Test if list is a valid matrix
+def matrix::_is_valid_list {m::list matrix,
+    .# Both of the following must be true:
+    m :#{:T::list=} .allt   .# The list is made up of only other lists
+    {
+        m :#{Em0IE=} .allt  .# All of the list lengths are the same
+    } 0 .?
+}
+
+def matrix::__init__ {input::list self,
+    input self.M._is_valid_list {
+        input self.:rows;
+    } {
+        "$input is not a valid matrix" .D
+    } .?
+}
+
+.# Use this instead of the constructor to avoid
+.# validating the list
+def matrix::_new {matrix,
+    {1, :rows} matrix :M
+}
+
+.{ Example:
+    aya> [3 3] matrixR 10^
+    [[ 1         1024       59049      ]
+     [ 1048576   9765625    60466176   ]
+     [ 282475249 1073741824 3486784401 ]]
+.}
+def matrix::__repr__ {self,
+    self.r self.c + 100 > {
+        "($(self.r)x$(self.c) matrix)"
+    } {
+       self.rows .matstr "\n" " ]\n [ " .& "[[ " \+ " ]]"+
+    } .?
+}
+
+
+.# Vectorized Operator Overloads
+.###############################
+
+.# Binary
+.# ------
+
+[
+    ::__sub__ ::__div__
+    ::__pow__ ::__lt__  ::__gt__  ::__mod__
+    ::__leq__ ::__geq__ ::__idiv__
+] :# {op_sym : mp^ op_to_n op rop rop_sym,
+    
+    [::n op_sym] mp.merge :op_to_n;
+    op_sym.op :op;
+    [::other {\} op_sym] mp.merge :rop;
+    op_sym.rev :rop_sym;
+
+    def matrix op_sym {other self : op^ rop^,
+        {
+            (other :T ::matrix =) {
+                other.rows self.rows op.` .& self.M._new
+            } (other :T ::num =) {
+                self.rows :# rop.` self.M._new
+            } { 
+                "TypeError: Invalid operation $(other:T) $(self:T) *" .D
+            }
+        } :?
+    }
+
+    def matrix rop_sym {self n::num : op_to_n^, self.rows :# {op_to_n} self.M._new}
+}
+
+def matrix ::__mul__ { other self,
+    {
+        (other :T ::matrix =) {
+            selfE otherE = {
+                other.rows self.rows {*} .& self.M._new
+            } {
+                self.rows other.rows  {{*}:*{~}O}:*{~}O self.M._new
+            } .?
+        } (other :T ::num =) {
+            self.rows {other *} O self.M._new
+        } {
+            "TypeError: Invalid operation $(other:T) $(self.T) *" .D
+        }
+    } :?
+}
+
+def matrix::__rmul__ {self n::num,
+    self.rows [n {*}].* O self.M._new
+}
+
+def matrix::matmul {other self, 
+    other.rows self.rows :{la.mul} self.M._new
+}
+
+def matrix ::__add__ { other self,
+    {
+        (other :T ::matrix =) {
+            selfE otherE = {
+                other.rows self.rows {+} .& self.M._new
+            } {
+                self.rows other.rows  {{+}:*{~}O}:*{~}O self.M._new
+            } .?
+        } (other :T ::num =) {
+            self.rows {other \+} O self.M._new
+        } {
+            "TypeError: Invalid operation $(other:T) $(self.T) *" .D
+        }
+    } :?
+}
+
+def matrix::__radd__ {self n::num,
+    self.rows {n +} O self.M._new
+}
+
+
+
+
+.# Unary
+.# -----
+[
+    ::__floor__ ::__ceil__ ::__negate__ ::__abs__ ::__signnum__
+    ::__sqrt__ ::__exp__ ::__ln__ ::__log__
+    ::__sin__ ::__asin__ ::__cos__ ::__acos__ ::__tan__ ::__atan__
+] :# {sym : op,
+    sym.op :op;
+    def matrix sym ({
+        :& .rows op #~ \.M._new
+        } {, op.`:op } .+
+    )
+}
+
+.# Other Overloads
+.# ---------------
+
+
+def matrix::_eq_num {n self,
+    self.rows n .= self.M._new
+}
+
+def matrix::_eq_list {l self,
+    self.rows :# {
+        .# Test if the current item is in the list
+        :# {l \ H}
+    } self.M._new
+}
+
+def matrix::_eq_mat {a b,
+    aE bE =! 0 {a.rows b.rows =} .?
+}
+
+.#? ::matrix ::matrix =\n  test if two matrices are equal
+.#? ::list ::matrix =\n  return a matrix of booleans where true if the corresponding element is in the input list
+.#? ::num ::matrix =\n  return a matrix of booleans there true if the corresponding element is equal to the input number
+def matrix::__eq__ ({a b,
+    a b
+    .# swap args if b is not a matrix
+    b :T ::matrix =! {\} ?
+    __fn 3.$ :T I ~
+} {,
+    {,
+        matrix._eq_list.` :list;
+        matrix._eq_num.`  :num;
+        matrix._eq_mat.`  :matrix;
+    }:__fn
+} .+)
+
+
+.#? ::matrix ::matrix &\n  element-wise and
+def matrix::__and__ {:matrix^, .rows\.rows {{&}.&}.& matrix._new}
+
+.#? ::matrix ::matrix |\n  element-wise or
+def matrix::__or__  {:matrix^, .rows\.rows {{|}.&}.& matrix._new}
+
+
+
+
+.#####################
+.# Matrix Operations #
+.#####################
+
+.#? ::matrix ::matrix.sq\n  square each value in the matrix
+def matrix::sq { :& * }
+
+
+.#? ::matrix matrix.issq\n  returns true if the list is a square matrix
+def matrix::issq {self, self.rowsE self.rows#E\#= `| %}
+
+.#? ::matrix matrix.tr\n  trace of a matrix as a list
+def matrix::tr {[1|.rows$ER,VI]}
+
+.#? ::matrix matrix.t\n  transpose a matrix
+def matrix::t {:&.rows.T\.M._new}
+
+.#? ::matrix.max\n  the max value of a matrix
+def matrix::max {.rows#.max.max}
+
+.#? ::matrix.min\n  the min value of a matrix
+def matrix::min {.rows#.min.min}
+
+.#? ::matrix.norm\n  normalize the matrix
+def matrix::norm {:& .sq .sum .^ /}
+
+.#? ::matrix.sum\n  the sum of all values in the matrix
+def matrix::sum {.rows #WW}
+
+.#? ::matrix.mean\n  the mean of all values in the matrix
+def matrix::mean {.E~* \.sum\/}
+
+def matrix::dot {o self : t matrix^,
+    o.c self.r =! {
+        "matrix.mul: shape mismatch $(o.c) != $(self.r)".D
+    } ?
+    .# (*W) is the dot product
+    self.rows.T :t;
+    o.rows  :# {r, t :#{r *W}}
+    matrix._new
+}
+
+.#? ::matrix.r\n  number of rows
+def matrix::r {.rowsE}
+
+.#? ::matrix.c\n  number of cols
+def matrix::c {.rows.[0] E}
+
+.###################
+.# Transformations #
+.###################
+
+.#? ::matrix ::matrix.hcat\n  concatenate horizontally
+def matrix::hcat {a::matrix b::matrix,
+    a.rows b.rows {J} .& a.M._new
+}
+
+.#? ::matrix ::matrix.vcat\n  concatenate vertically
+def matrix::vcat {a::matrix b::matrix,
+    a.rows b.rows J a.M._new
+}
+
+.#? ::num ::matrix.rotate_cols\n  shift columns of a matrix right N times
+.#? ::num ::matrix.rotate_rows\n  shift rows of a matrix down N times
+.{ Example:
+    aya> [3 3]matrixR
+    [[ 1 2 3 ]
+     [ 4 5 6 ]
+     [ 7 8 9 ]]
+
+    aya> 1 [3 3]matrixR.rotate_rows
+    [[ 7 8 9 ]
+     [ 1 2 3 ]
+     [ 4 5 6 ]]
+
+    aya> 1 [3 3]matrixR.rotate_cols
+    [[ 3 1 2 ]
+     [ 6 4 5 ]
+     [ 9 7 8 ]]
+.}
+def matrix::rotate_cols {:matrix^,
+    .rows \ #{\.rotate} matrix._new
+}
+
+def matrix::rotate_rows {:matrix^,
+    .rows .rotate matrix._new
+}
+
+def matrix::circshift {rc self : m,
+    rc.[0] self.rotate_rows :m;
+    rc.[1] m.rotate_cols
+}
+
+.#? [rows cols] ::matrix .<\n  cut or pad the matrix to the given size from the upper left corner
+.{? Example:
+
+    aya> [2 2] matrixR [3 3] .<
+    [[ 1 2 0 ]
+     [ 3 4 0 ]
+     [ 0 0 0 ]]
+
+    aya> [2 2] matrixR [3 2] .<
+    [[ 1 2 ]
+     [ 3 4 ]
+     [ 0 0 ]]
+
+    aya> [2 2] matrixR [3 1] .<
+    [[ 1 ]
+     [ 3 ]
+     [ 0 ]]
+
+    aya> [2 2] matrixR [2 3] .<
+    [[ 1 2 0 ]
+     [ 3 4 0 ]]
+
+    aya> [2 2] matrixR [1 3] .<
+    [[ 1 2 0 ]]
+.}
+def matrix::__head__ {self n::list : d,
+    n E 2 =! {"dimension of take must be 2" .D} ?
+
+    .# rows
+    self.rows n.[1] #.<
+
+    .# cols
+    .# Pad the list with 0s
+    n.[0] .<
+    .# create empty list equal to the length of the first element
+    .# ex: cols=5 then create [0 0 0 0 0]
+    0 dot_i E 0\L :d;
+    .# Replace 0s with the empty list
+    :# {$ 0 = {;d} ?}
+
+    self.M._new
+}
+
+
+.#? [rows cols] ::matrix .<\n  cut or pad the matrix to the given size from the bottom right corner
+def matrix::__tail__ {self n::list : d,
+    n E 2 =! {"dimension of take must be 2" .D} ?
+
+    .# rows
+    self.rows n.[1] #.>
+
+    .# cols
+    .# Pad the list with 0s
+    n.[0] .>
+    .# create empty list equal to the length of the last element
+    .# ex: cols=5 then create [0 0 0 0 0]
+    -1 dot_i E 0 \L :d;
+    .# Replace 0s with the empty list
+    :# {$ 0 = {;d} ?}
+
+    self.M._new
+}
+
+
+.#? ::num ::matrix.pad\n  insert N outer cols and rows of zeros
+.{ Example:
+    aya> 1 4R [2 2]L matrix!.pad
+    [[ 0 0 0 0 ]
+     [ 0 1 2 0 ]
+     [ 0 3 4 0 ]
+     [ 0 0 0 0 ]]
+.}
+def matrix::pad {n::num self : r c,
+    self.r :r;
+    self.c :c;
+
+    self [r n + c n +] .<
+    [r n2* + c n2* +] .>
+}
+
+
+
+
+.#############
+.# Overloads #
+.#############
+
+.#? ::matrix U\n  reverse the rows of a matrix
+def matrix::__reverse__ {:& .rows U \.M._new}
+
+.#? ::matrix E\n  the shape of the matrix
+def matrix::__len__ {.rows.E\0IEJ}
+
+
+.#############
+.# Iteration #
+.#############
+
+
+.#? ::block ::matrix matrix.apply\n  apply an expression to each element of the matrix in place
+def matrix::apply {expr::block self,
+    self.rows # {#expr} self.:rows; self
+}
+
+.#? ::block ::matrix matrix.map\n  apply an expression to each element of a matrix, return nothing
+def matrix::map {expr::block self,
+    self.rows #{#expr};
+}:map;
+
+.#? ::matrix :# ::block \n  make a copy of the matrix and apply an expression to each element
+def matrix::__each__ {expr::block self,
+    self.rows$ :#{:#{expr}} self.M! \;
+}
+
+
+
+.############
+.# Indexing #
+.############
+
+
+.# value row column matrix::_set
+.# Set the value of a location in a matrix
+def matrix::_set {value r::num c::num self,
+    value self.rows.[r].:[c]; self
+}
+
+.#? matrix::cols\n  return a copy of the matrix columns
+def matrix::cols {.rows .T}
+
+.#? ::matrix [rows cols] I\n get an item or a submatrix
+def matrix::__getindex__ {ix mat : r c matrix^,
+    ix0I :r;
+    ix1I :c;
+
+    .# Get the data
+    mat.rows r I
+    r :T ::num = {A} ?
+    #{cI}
+
+    .# Transform the data based on input type
+    .# Return a new matrix if possible
+    c :T ::num = {
+        r :T ::num = {
+            .# `r` and `c` both nums, return a single item
+            0I
+        } {
+            .# Only columns returned, wrap each in a list
+            #A matrix!
+        } .?
+    } {
+        .# Only rows returned, convert to matrix
+        matrix!
+    } .?
+}
+
+def matrix::__setindex__ {val ix self : r c matrix^,
+    {
+        (ix :T ::matrix =) {
+            val :T ::matrix = {val.rows :val;} ?
+            val :T ::list = {
+                val self.rows ix.rows [3|,D];
+            } {
+                self.rows ix.rows {val @@ D} .&;
+            } .?
+            self
+        } (ix :T ::list =) {
+            val ix.[0] ix.[1] self._set
+        } {
+            "TypeError: Invalid operation $(other:T) $(self.T) *" .D
+        }
+    } :?
+}
+
+.##############
+.# Generators #
+.##############
+
+.#? N matrix.eye\n  generate an Nd identity matrix
+def matrix::eye {matrix,
+    $0\L1\:J\$:JL  matrix._new
+}
+
+.# generates the next row of a pascal matrix
+def matrix::_nextpascal {prev::list matrix : new len ix,
+    prevE:len;
+    1 0 lenVL:J:new;
+    1:ix;
+    {prev ixI new ixVI+ new.:[ix]; ::ix B}lenV%
+    new
+}
+
+.#? I matrix.pascal\n  generate an I by I matrix representation of pascal's triangle
+.{ Example:
+    aya> 4 matrix.pascal
+    [[ 1 1 1  1  ]
+     [ 1 2 3  4  ]
+     [ 1 3 6  10 ]
+     [ 1 4 10 20 ]]
+.}
+def matrix::pascal {n::num matrix,
+    [1 n L {$matrix._nextpascal} n V %] matrix._new
+}
+
+.#? [rows cols] matrix::R\n  generate a matrix counting up from 1
+def matrix::__range__ {l::list matrix,
+    l~*R l L matrix!
+}
+
+.#? [rows cols] matrix.random\n  create a N1 by N2 matrix of random values [0,1]
+def matrix::__random__ {matrix,
+    0\L :#{:#{;.Q}} matrix._new
+}
+
+.# rows::num cols::num matrix._newfill\n  create a I1 by I2 matrix filled with N3
+def matrix::_newfill {matrix, \L\Lmatrix._new}
+
+.#? [rows cols] matrix.ones\n  create a N1 by N2 matrix of ones
+def matrix::ones  {matrix, ~ 1 matrix._newfill}
+
+.#? [rows cols] matrix.zeros\n  create a N1 by N2 matrix of zeros
+def matrix::zeros {matrix, ~ 0 matrix._newfill}
+
+.#? value::num [rows cols] matrix.full\n  create a rows x cols matrix filled with value
+def matrix::full {value::num shape::list matrix,
+    shape.[0] shape.[1] value matrix._newfill
+}
+
+
+
+.#? ::matrix.comma_str\n  print the matrix in list with comma format
+def matrix::comma_str {.rows :#{ "," % "[" \+"]"+} "," % "["\+ "]"+}
+{,} {,
+  ::missing:__type__;
+  {; "Cannot create instance of missing" .D}:__new__;
+  {"missing"}:__str__:__repr__;
+  {; []}:__range__;
+
+  {;; 0}
+      :__eq__
+      :__lt__:__leq__
+      :__gt__:__geq__;
+
+  {;; missing}
+      :__add__:__radd__
+      :__sub__:__rsub__
+      :__mod__:__rmod__
+      :__and__:__rand__
+      :__or__ :__ror__
+      :__mul__:__rmul__
+      :__div__:__rdiv__
+      :__pow__:__rpow__
+      :__idiv__:__irdiv__;
+
+  {}
+      :__fact__
+      :__negate__
+      :__signnum__
+      :__sin__:__asin__
+      :__cos__:__acos__
+      :__tan__:__atan__
+      :__float__
+      :__random__
+      :__ceil__
+      :__floor__
+      :__log__
+      :__ln__
+      :__exp__
+      :__sqrt__
+      :__abs__;
+
+} :M :missing;
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Metaprogramming utilities
+
+module mp
+export ::mp
+
+.#? ::list mp.capture_vars\n  given a list of symbols, return a dict with each symbol and
+def mp::capture_vars ( {}.M._capture_vars.` )
+
+
+.#? ::list mp.merge\n  Convert a list of blocks into a single block
+def mp::merge {
+    #.op .*
+}
+
+
+
+class plot
+class multiplot
+class dataset
+
+.# If true, the view command will not open windows
+.# Generally useful is running tests
+def plot::_supress_windows 0
+
+.# plot
+.#   data::list : list of plot.dataset objects (see plot.dataset)
+.#   title::str : plot title
+.#   bgcolor::color/str : background color
+.#   color_cycle::list : override the default color cycle
+.#   x,y::dict : axis configuration
+.#       gridlines::bool : show axis gridlines
+.#       gridline_color::color/str : axis gridline color
+.#       zeroline::bool : show axis zero line
+.#       visible::bool : draw axis labels
+.#       lim::list : min and max axis limits
+.#       label::str : axis label
+.#   <any value in dataset params will be used as the default value>
+.#       for example, setting stroke to 10 here will make it the default
+.#       for all lines that do not explicitly provide one
+def plot::__init__ {self,
+    [] self.:data;
+
+    {,} self.:y;
+    {,} self.:x;
+}
+
+
+.# plot.dataset
+.#   x::list : domain data
+.#   y::list : range data
+.#   label::str : name of the dataset
+.#   color::color/str : color of line/shapes
+.#   stroke::num : stroke weight (may be non-integer)
+.#   lines::num (bool) : draw lines between points
+.#   points::num (bool) : draw points
+.#   yclip::list ([min,max]) : y values outside of this range will not
+.#       be rendered, they will create a jump in the graph
+def dataset::__init__ {x y params self,
+    x self.:x;
+    y self.:y;
+    self params .+ ;
+}
+
+.# Get y as a list
+.# If y is a block, apply it to x and return a list
+def plot::_get_y {x::list y plot,
+    {
+        (y.` :T ::block =) {
+            x y :y;
+        } (y.` :T ::list =) {
+            .# noop
+        } {
+            "invalid" .D
+        }
+    } :?
+    y
+}
+
+.# Add a dataset to the plot
+def plot::_add_dataset {d::dataset self,
+    d self.data .B ;
+}
+
+.# Generic plot function
+.# Add a new dataset to the plot
+def plot::plot {x::list y params::dict self : dataset^,
+    x (x y.` self.M._get_y) params dataset! self._add_dataset
+}
+
+.# Adds a new dataset to the plot, formatted as a scatter plot
+def plot::scatter {x::list y params::dict self : dataset^ d,
+    x (x y.` self.M._get_y) params dataset! :d;
+    0 d.:lines;
+    1 d.:points;
+    d self._add_dataset
+}
+
+.# Show the plot in a window
+def plot::view {self,
+    self.M._supress_windows ! {
+        "" self.:filename;
+        self :{plot.plot}
+    } ?
+
+}
+
+.# Multi-Plot
+.##############
+
+def multiplot::__init__ {self,
+    [] self.:subplots;
+
+    {,} self.:y;
+    {,} self.:x;
+}
+
+def multiplot::add {plot self,
+    plot self.subplots.append;
+}
+
+def multiplot::view {self : plot^,
+    plot._supress_windows ! {
+        "" self.:filename;
+        self :{plot.multiplot}
+    } ?
+}
+
+
+.# Quick Plot Functions
+.########################
+
+.# Create a line plot with default paramaters and x,y as a dataset
+def ::line {x::list y::list : p plot^,
+    plot! :p;
+    x y {,} p.plot
+    0 p.:legend;
+    p
+}
+
+.# Create a line plot with default paramaters and x,y as a dataset
+def ::fns {fns::list a::num b::num : x p plot^,
+    plot! :p;
+    [a b 300] .R :x;
+    fns {f, 
+        x :& f.` O {, f.`P:label} p.plot
+    } O;
+    1 p.:legend;
+    p
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# queue.aya
+.# Defines the queue data structure
+
+.{? type: queue
+    A simple queue data structure
+
+    Create queues by entering a list followed by the queue constructor
+    [1 2 3] queue!
+.}
+
+
+class queue
+export ::queue
+
+
+.#? ::list ::queue.__init__\n  convert a list into a queue
+def queue::__init__ {l self,
+    l self.:list ;
+}
+
+
+.# str and repr overloads
+def queue::__str__ {self,
+    self.isempty {
+        "queue: <- -<"
+    } {
+        "queue: <-" self.list P B; V; "-<" ++
+    } .?
+}
+
+(queue.__str__.`,0); queue.:__repr__;
+
+
+.#? ::queue.next\n  return the next item in the queue
+def queue::next {self,
+    self.list E 0 = {"queue obj is empty".D} ?
+    self.list V \ ;
+}
+
+
+.#? ::queue.peek\n  return the next item in the queue without removing it from the queue
+def queue::peek {self,
+    self.list E 0 = {"queue obj is empty".D} ?
+    self.list 0 I
+}
+
+.#? ::queue.__len__\n  return the number of elements in the queue
+def queue::__len__ { .list E }
+
+
+.#? ::queue.isempty\n  tests if the queue is empty
+def queue::isempty { .list E 0 = }
+
+
+.#? ::any ::queue.add\n  add an item to the queue
+def queue::__add__ {self,
+    self.list.B ; self
+}
+
+
+.#? ::queue.clear\n  clear the queue
+def queue::clear {self,
+    [] self.:list
+}
+
+def queue::__each__ {blk self,
+    self.list :# {blk}
+}
+
+.# This file is a part of aya: https://github.com/aya-lang/aya
+
+.# Functions related to random number generation
+
+module random
+export ::random
+
+.#? ::list ::num random.lotto\n  pick N random items from L
+def random::lotto {
+    \.EV@L#QI
+}
+
+.#? lo::num hi::num random.randint\n  random integer between lo and hi
+def random::randint {
+    \$@\-Q+
+}
+import ::csv
+
+
+module rdatasets
+export ::rdatasets
+
+def rdatasets::_index_csv "https://raw.githubusercontent.com/vincentarelbundock/Rdatasets/master/datasets.csv"
+def rdatasets::_cache_loc "rdatasets_index.csv"
+
+.# Load index file
+def rdatasets::load_index {:index_str("") data index({,}) packages({,}),
+
+    {
+        rdatasets._cache_loc G :index_str;
+    } {
+        "Downloading dataset from $(rdatasets._index_csv)..." :P
+        rdatasets._index_csv G :index_str;
+        index_str rdatasets._cache_loc 0 .G
+    } .K
+
+    "Parsing CSV..." :P
+    index_str "," csv.parse :data;
+    data V; :data; .# Remove first row
+
+    data :d;
+
+    .# Build index
+    "Building index..." :P
+    data :# {row : pkg(row.[0]) name(row.[1]),
+        .# Add to url index
+        row.[-2] index.:["$pkg/$name"]
+
+        .# Add to package index
+        .# Add package list if it does not exist
+        packages pkg H ! { [] packages.:[pkg]; } ?
+        .# Add name to list
+        name packages.[pkg] .B ;
+
+    };
+    "Done." :P
+
+    def rdatasets::index index
+    def rdatasets::packages packages
+}
+
+
+def rdatasets::index {,}
+def rdatasets::packages {,}
+
+def rdatasets::load {id::str : rdatasets^ csv^,
+    rdatasets.index :E 0 = {
+        rdatasets.load_index
+    } ?
+    
+    "/" id.in {
+        rdatasets.index.[id]
+    } {
+        rdatasets.index.["datasets/$id"]
+    } .?
+
+    csv.open
+}
+
+
+rdatasets:r;
+
+
+
+
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# set.aya
+.# Defines the set data structure
+
+.{? type: set
+    The set type is a simple list type where there exits no duplicate elements.
+    Create a set by entering a list followed by the set constructor
+.}
+
+
+class set
+export [::set ::s]
+
+def set::__init__ {l::list self,
+    l self.:list ;
+}
+
+
+.#
+.# Adding / Removing elements
+.#
+
+.#? ::any ::set.__add__\n  add an item to a set
+def set::__add__ {item self,
+    item self.in ! {self.list [item] :J;} ? self
+}
+
+.#? ::any ::set.__sub__\n  remove an item from a set
+def set::__sub__ {item self,
+    self.list [item] :| self.:list
+}
+
+
+
+.#
+.# Set operations
+.#
+
+.#? ::set ::set.__or__\n  set union
+def set::__or__ {other::set self,
+    other.list $ \; self.list :J :~ self.M!
+}
+
+.#? ::set ::set.__and__\n  set intersection
+def set::__and__ {other::set self : l,
+    self.list :l;
+    other.list # {l \N$ 0:> {I} {;;} .?} self.M!
+}
+
+
+.#? ::set ::set.__div__\n  set difference
+def set::__div__ {other::set self,
+    other.list $\; self.list :| self.M!
+}
+
+
+.#? ::set ::set.__eq__\n test if two sets are the same
+def set::__eq__ {other::set self,
+    other.list self.list =
+}
+
+
+.#? ::set ::set.__lt__\n  proper subset
+def set::__lt__ {other::set self,
+    other self.__leq__            .# subset
+    other.list self.list = !  .# proper subset
+    &
+}
+
+.#? ::set ::set.__gt__\n  proper subset
+def set::__gt__ {\.__lt__}
+
+
+.#? ::set ::set.__leq__\n subset
+def set::__leq__ {other::set self : l,
+    other.list :l;
+    self.list # { l \ N \; 0 :>} {*} %
+}
+
+.#? ::set ::set.__geq__\n subset
+def set::__geq__ {\.__leq__}
+
+
+
+.#
+.# Other functions
+.#
+
+.#? ::any ::set.in\n  tests if an item is in a set
+def set::in {item self,
+    self.list item N\; 0 :>
+}
+
+
+.#? ::set.__len__\n  returns the number of elements in the set
+def set::__len__ { .list E }
+
+
+.#? ::set.clear\n  clear the contents of a set
+def set::clear {[]\ .:list}
+
+def set::__repr__ {.listP"s"\+}
+def set::__str__  {.listP"s"\+}
+
+def set::__each__ {blk self,
+    self.list :# {blk}
+}
+
+
+{{~set!} 0 :`}:s;
+.# Shell-like commands for Aya
+
+import ::sys
+import ::io
+import ::terminal
+
+struct shellresult {value}
+
+def shellresult::__repr__ {self,
+    self.value
+}
+
+def shellresult::lines {self,
+    self.value '\n' S
+}
+
+
+module shell_impl
+
+def shell_impl::grep {res::shellresult rgx::str : shellresult^ ,
+    res.lines {rgx &E0>} I
+    "\n" % shellresult!
+}
+
+def shell_impl::cat {filename::str : shellresult^ ,
+    filename G shellresult!
+}
+
+def shell_impl::echo {data::str : shellresult^ ,
+    data shellresult!
+}
+
+
+.#? ls\n  print a list of files in the working dir
+def ::ls {: shellresult^ ,
+    :{sys.wd} :{sys.readdir}
+    .E 0 = {
+        ; "  <no files>"
+    } {
+        C "\n" %
+    } .?
+
+    shellresult!
+}
+
+
+.#? pwd\n  print working directory
+def ::pwd {: path^ , path.working:P}
+
+
+.#? cd dir\n  change directory
+def ::cd {{sys.cd} 0:`}
+
+
+.#? mkdir S\n  create a new directory
+def ::mkdir { {sys.mkdir} 0 :` }
+
+
+.# def ::echo ({(4 hold)x (2 hold)~} {, shell_impl.echo.` :x } .+)
+
+.#? echo S\n  print a string to the console
+def ::echo {: shell_impl^,  
+    {: shell_impl^, ~ shell_impl.echo } 0 :`
+}
+
+.#? cat S\n  print a file to the console
+def ::cat {: shell_impl^, 
+    {: shell_impl^, ~ shell_impl.cat} 0 :`
+}
+
+def ::grep {: shell_impl^, 
+    {: shell_impl^, ~ shell_impl.grep} 0 :`
+}
+
+
+def ::touch { {s::str, "" s 1.G} 0 :` }
+
+def ::clear {:terminal^, terminal.clear}
+
+
+def (__aya__.interpreter)::shell {str : cmd args,
+    str ' N $ 0 :> {
+        ;; str~
+    } {
+        Mu trim :args; :cmd;
+        cmd~ args
+    } .?
+}
+
+export [
+    ::sys
+    ::shell_impl
+
+    ::ls
+    ::pwd
+    ::cd
+    ::mkdir
+    ::echo
+    ::cat
+    ::grep
+    ::touch
+    ::clear
+]
+
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# socket.aya
+.# Defines socket and socket_server types
+
+export [::socket ::socket_server]
+
+struct socket {
+    _sock
+}
+
+struct socket_server {
+    _srv
+}
+
+def socket_server::accept {self : socket^,
+    self._srv :{socket.accept} socket!
+}
+
+def socket_server::listen {addr port : socket_server^,
+    addr port :{socket.open_server} socket_server!
+}
+
+def socket_server::close {self,
+    self._srv :{socket.close}
+}
+
+def socket_server::port {self,
+    self._srv :{socket.get_port}
+}
+
+def socket_server::addr {self,
+    self._srv :{socket.get_addr}
+}
+
+def socket::connect {addr port : socket^,
+    addr port :{socket.open_client} socket!
+}
+
+def socket::recv {self,
+    self._sock :{socket.recv}
+}
+
+def socket::port {self,
+    self._sock :{socket.get_port}
+}
+
+def socket::addr {self,
+    self._sock :{socket.get_addr}
+}
+
+def socket::send {self,
+    self._sock :{socket.send}
+}
+
+def socket::println {data self,
+    data P "\r\n" + self._sock :{socket.send}
+}
+
+def socket::close {self,
+    self._sock :{socket.close}
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# stack.aya
+.# defines the stack type
+
+.{? type: stack
+    A simple stack data structure
+
+    Create stacks by entering a list followed by the stack constructor
+    [1 2 3] stack!
+.}
+
+
+class stack
+export ::stack
+
+
+.#? ::list stack!\n  convert a list into a stack
+def stack::__init__ {l self,
+    l self.:list;
+}
+
+
+def stack::__str__ {self,
+    self.isempty {
+        "stack: <- -|"
+    } {
+        "stack: <-"self.listPB;V;"-|"++
+    } .?
+}
+
+
+def stack::__repr__ (stack.__str__.`)
+
+
+.#? ::stack.pop\n  return the next item in the stack
+def stack::pop {self,
+    self.listE0= {"stack obj is empty" .D} ?
+    self.listV\;
+}
+
+.#? ::stack.peek\n  return the next item in the stack without removing it from the stack
+def stack::peek {self,
+    self.listE0= {"stack obj is empty" .D} ?
+    self.list0I
+}
+
+
+.#? ::stack.len\n  return the number of elements in the stack
+def stack::__len__ {.listE}
+
+
+.#? ::stack.isempty\n  tests if the stack is empty
+def stack::isempty {.listE0=}
+
+
+.#? A ::stack.add\n  add an item to the stack
+def stack::push {self,
+    self.list.V; self
+}
+
+def stack::__add__ (stack.push.`)
+def stack::__sub__ (stack.pop.`)
+
+.#? ::stack.clear\n  clear the queue
+def stack::clear {self,
+    [] self.:list
+}
+
+
+def stack::__each__ {blk self,
+    self.list :# blk.`
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+module stats
+export ::stats
+
+from ::math import ::cumsum
+
+.#? ::list stats.mean\n  average of a list of numbers
+def stats::mean {
+    .E\W\/
+}
+
+
+.#? ::list stats.variance\n  population variance
+def stats::variance {set : m stats^,
+    set stats.mean:m;
+    set#{m- 2^} W setE /
+}
+
+
+.#? L stats.stdev\n  standard deviation
+def stats::stdev {: stats^,
+    stats.variance .^
+}
+
+
+.#? ::list stats.geomean\n  geometric mean
+.# the nth root of the product of n numbers
+.# compute by summing the logarithms of the values
+def stats::geomean {
+    Ml.E\W\/Me
+}
+
+
+.#? L stats.median\n  median value of a list
+def stats::median {l,
+    lC$E2/.\        .# Sort the list and get its middle index
+    lE2:%0= {        .# If the list has even length,
+        $1-:JIW2/    .# average the middle two
+    } {
+        I           .# else, take the middle item
+    }  .?
+}
+
+
+.#? ::list ::list stats.regression\n  return a block that evaluates to the regression of the sets
+def stats::regression {x y :
+    n a b
+    sumy sumx
+    sumxsq
+    sumxytimes,
+
+    xE:n;
+    x2#^W:sumxsq;
+    [x y,*]W:sumxytimes;
+    xW:sumx;
+    yW:sumy;
+
+
+    sumy sumxsq *  sumx sumxytimes * -
+    n sumxsq * sumx2^ -
+    /:a;
+
+    n sumxytimes * sumx sumy * -
+    n sumxsq * sumx2^-
+    /:b;
+
+    {b * a +} [::a ::b] .+
+}
+
+
+.#? ::list ::list stats.pearson\n  pearson correlation coefficient between 2 datasets
+def stats::pearson {x y : n xs ys,
+    xE:n;
+    xW:xs;
+    yW:ys;
+
+    [x y,*]Wn* xs ys*-
+     x2^Wn* xs2^ -
+     y2^Wn* ys2^ -
+     * .^
+    /
+}
+
+def stats::hist {l::list nbins::num : min max bin_size bins counter cumsum^,
+    .# compute bin size using list min and max values
+    l.min :min;
+    l.max :max;
+    max min - nbins / :bin_size;
+
+    .# generate list of bins
+    .# for example, if 2:bin_size, 1:min, 5:nbins
+    .#    [ 3 5 7 9 11 ] :bins
+    bin_size nbins L cumsum min + :bins;
+
+    .# Set last bin to max value (prevent rounding errors)
+    max bins.:[-1];
+
+    .# Create a list of counters
+    [nbins,; 0] :counter;
+
+    .# Map each item to it's bin index
+    l #{bins>W}
+    .# count all bin indices
+    :# {i, counter.[i] 1 + counter.:[i]};
+
+    counter
+}
+from ::io import ::path
+
+module sys
+export ::sys
+
+def sys::args :{sys.args}
+
+
+.#? sys.iswindows\n  returns true if system is windows
+def sys::iswindows {:9s"\\"=}
+
+
+.# ::str sys.cd\n  set working directory
+def sys::cd {dirname : path^,
+    dirname
+    .# If it is a string, conv to path
+    dirname :T ::str = { path! } ?
+    P :{sys.cd}
+}
+
+
+.#? ::str sys.mkdir\n  create a new directory
+def sys::mkdir {dir,
+    dir P :{sys.mkdir}
+}
+
+
+def sys::readdir {dir,
+    dir P :dir;
+    dir "" = {"." :dir;} ?
+    dir :{sys.readdir}
+}
+
+import ::color
+
+module terminal
+export ::terminal
+
+def terminal::fg (color.colors.white)
+def terminal::bg (color.colors.black)
+
+def terminal::clear {"\{x1b}[2J".P}
+def terminal::clearline {"\{x1b}[1:J\{x1b}[1G".P}
+
+def terminal::_setfgstr {c::color, "\{x1b}[38;2;$(c.r);$(c.g);$(c.b)m" }
+def terminal::_setbgstr {c::color, "\{x1b}[48;2;$(c.r);$(c.g);$(c.b)m" }
+
+def terminal::setfg {c::color : terminal^,
+    c terminal.:fg;
+    c terminal._setfgstr .P
+}
+
+def terminal::setbg {c::color : terminal^,
+    c terminal.:bg;
+    c terminal._setbgstr .P
+}
+
+def terminal::bold      { "\{x1b}[1m" "\{x1b}[22m" .? .P}
+def terminal::italic    { "\{x1b}[3m" "\{x1b}[23m" .? .P}
+def terminal::underline { "\{x1b}[4m" "\{x1b}[24m" .? .P}
+def terminal::strike    { "\{x1b}[9m" "\{x1b}[29m" .? .P}
+
+def terminal::reset_font {: terminal^ ,
+    0 terminal.bold
+    0 terminal.italic
+    0 terminal.underline
+    0 terminal.strike
+}
+
+def terminal::reset_color {: color^ terminal^ ,
+    color.colors.white terminal.setfg
+    color.colors.black terminal.setbg
+}
+
+def terminal::replcolor {c::color : color^ terminal^ ,
+    [c terminal._setfgstr
+     "aya> "
+     color.colors.white terminal._setfgstr]W
+    :{sys.alterprompt}
+}
+
+def terminal::print_color {value c::color : terminal^ prev_fg,
+    terminal.fg :prev_fg;
+    c terminal.setfg
+    value P .P
+    prev_fg terminal.setfg
+}
+
+def terminal::println_color {value c::color : terminal^,
+    value c terminal.print_color
+    "" :P
+}
+struct thread {id}
+
+def ::new {: thread^,
+    :{thread.new} thread!
+}
+
+.# Create a new thread
+def thread::new {cls,
+    :{thread.new} thread!
+}
+
+
+def thread::add_task {block self,
+    .# Add task to thread
+    .#
+    .# aya> {1 1 +} thread.add_task
+    .# aya> {1 1 +} thread +
+
+    block.` self.id :{thread.add_task}
+    self
+}
+
+.# Use sum to easily add multiple tasks to a thread
+.# aya> threading.new :t;
+.# aya> [{1} {2} {3}]: tasks;
+.# t tasks J W
+def thread::__add__ (thread.add_task.`)
+def thread::__radd__ {\+}
+
+
+
+def thread::wait_for_result {self,
+    .# Join and get result from thread
+    .#
+    .# aya> thread.wait_for_result
+    .# aya> thread .|
+    self.id :{thread.wait_for_result}
+}
+
+def thread::__abs__ (thread.wait_for_result.`)
+
+
+def thread::has_unfinished_tasks {self,
+    self.id :{thread.has_unfinished_tasks}
+}
+
+
+
+class pool
+
+def pool::__init__ {n_threads::num self : thread^,
+    [] self.:threads_with_tasks;
+    [n_threads,; thread.new] self.:thread_pool;
+}
+
+def pool::exec { tasks::list finished_callback::block self : finished_threads,
+    .# Loop until no tasks remain
+    {
+        .# For each thread with a task, check if it is ready,
+        .# if it is, get the result and add it back to the pool
+        [] :finished_threads;
+        self.threads_with_tasks :# {thread : res,
+            thread.has_unfinished_tasks ! {
+                thread.wait_for_result finished_callback
+                .#draw_result cvs.show
+                thread finished_threads .B;
+            } ?
+        };
+
+        .# Remove finished threads from threads with tasks
+        self.threads_with_tasks finished_threads :| self.:threads_with_tasks;
+
+        .# Add the finished threads back to the pool
+        self.thread_pool finished_threads J self.:thread_pool;
+
+       .# Add a task to each thread in the pool
+        self.thread_pool :# {thread,
+            tasks E 0 > {
+                tasks B\; thread.add_task
+                thread self.threads_with_tasks .B;
+            } ?
+        };
+
+        .# Remove threads with tasks from the pool
+        self.thread_pool self.threads_with_tasks :| self.:thread_pool;
+
+        1 :Z
+
+    tasks E 0 > } W
+
+    .# Wait for all remaining tasks
+    self.threads_with_tasks :# {thread : res,
+        thread.wait_for_result finished_callback
+    };
+
+    .# Put everything back in the pool
+    self.threads_with_tasks self.thread_pool J self.:thread_pool;
+    [] self.:threads_with_tasks;
+}
+
+
+
+module time
+export ::time
+
+class rate
+rate time.:rate;
+
+def rate::__init__ {hz self,
+    hz self.:hz;
+    1 hz / 1000 * self.:sleep_duration_ms;
+    M$ self.:last_sleep_time;
+}
+
+def rate::sleep {self : time_since_last_sleep,
+    M$ self.last_sleep_time - :time_since_last_sleep;
+
+    self.sleep_duration_ms time_since_last_sleep -
+    .# floor and clip to 0
+    .\ 0 .<
+    .# sleep
+    :Z
+
+    M$ self.:last_sleep_time;
+}
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.{
+    turtle
+
+    A simple turtle graphics library
+    The API is modeled after python's built-in turtle library
+
+    Examples:
+        .# Offset nested balls
+        {, 200:width 200:height} turtle!:t
+        10R :# {n, {0.1 t.right n t.fd 2:Z} 100 %} ;
+
+        .# A small colorful star
+        color.colors.red {10\.hueshift $ t.pencolor 40 t.fd 124 t.right} 36 %
+.}
+
+import ::canvas
+import ::color
+
+export ::turtle
+class turtle
+
+color.colors.white :c_white;
+color.colors.black :c_black;
+
+
+def turtle::__init__ {params::dict self : canvas^ c_black^ c_white^,
+
+    .# Default values
+    {,
+        0:x
+        0:y
+        0:r
+        400:width;
+        300:height;
+        ::deg:units;
+        1 :autodraw;
+        c_white :bg_color;
+        c_black :fg_color;
+        nil :canvas;
+    }
+
+    .# Merge user defined
+    params .+ :params;
+
+    params.x self.:_x;
+    params.y self.:_y;
+    params.r self.:_r;
+
+    params.units [::deg ::degrees].in self.:_use_deg;
+
+    .# Use the provided canvas or generate one?
+    params.canvas nil = {
+        params.width self.:_w;
+        params.height self.:_h;
+        {, self._w:width self._h:height "Turtle":name } canvas! self.:_cvs;
+    } {
+        params.canvas self.:_cvs;
+        self._cvs.width self.:_w;
+        self._cvs.height self.:_h;
+    } .?
+
+    .# Draw background
+    params.bg_color self._cvs.set_color
+    0 0 self._cvs.width self._cvs.height self._cvs.fillrect
+
+    params.fg_color self._cvs.set_color
+
+
+    1 self.:_pen_down;
+    params.autodraw self.:_autodraw;
+
+
+}
+
+def turtle::__repr__ {self,
+    "turtle: pos=($(self._x), $(self._y)) dir=$(self._r)"
+}
+
+.#################
+.# Turtle Motion #
+.#################
+
+def turtle::fd {n self : px py,
+    self._x :px;
+    self._y :py;
+    self._x self._r Mc n * + self.:_x;
+    self._y self._r Ms n * + self.:_y;
+    px py self._step_from
+}
+
+def turtle::right {amount self,
+    self._r amount self._to_rad + self.:_r;
+}
+
+def turtle::left {amount self,
+    self._r amount self._to_rad - self.:_r;
+}
+
+def turtle::goto {x y self : px py,
+    self._x :px;
+    self._y :py;
+    x self.:_x;
+    y self.:_y;
+    px py self._step_from
+}
+
+def turtle::pos {self,
+    self._x self._y
+}
+
+def turtle::draw {self,
+    self._cvs.show
+}
+
+def turtle::close {self,
+    self._cvs.close
+}
+
+.###############
+.# Pen Control #
+.###############
+
+def turtle::pendown {self,
+    1 self.:_pen_down;
+}
+
+def turtle::penup {self,
+    0 self.:_pen_down;
+}
+
+def turtle::isdown {self,
+    self._pen_down
+}
+
+def turtle::pencolor {c::color self,
+    c self._cvs.set_color
+}
+
+
+.####################
+.# Helper Functions #
+.####################
+
+
+.# This function maps the turtle
+.# coordinate space to the canvas coordinate space
+.# The turtle lives in a coordinate frame where (0,0) is
+.# at the center of the canvas.
+def turtle::_tf {x y self,
+    x self._w 2/ +
+    y self._h 2/ +
+}
+
+.# Convert the input value to radians if units is degrees
+def turtle::_to_rad {val self,
+    self._use_deg
+        val :1p1 180 / *
+        val
+    .?
+}
+
+
+.# Callback function for after the turtle steps
+.# Assumes the turtle's position has already been updated
+.# px and py are the turtles previous location
+def turtle::_step_from {px py self,
+    self._pen_down {
+        px py self._tf
+        self._x self._y self._tf
+        self._cvs.line
+        self._autodraw {
+            self._cvs.show
+        } ?
+    } ?
+}
+
+.#############
+.# Overloads #
+.#############
+
+def turtle::__rpow__ {self val,
+  val self.fd
+  self
+}
+
+
+.# For testing
+{,
+    100 :width
+    100 :height
+    ::deg :units
+} turtle! :t
+.# This file is a part of Aya: https://github.com/nick-paul/aya-lang
+
+.# unit.aya
+.# Note: This file is currently deprecated.
+.#       It will be reintroduced at a later time.
+
+.{ Todo:
+   Make all units objects
+   Overload operators
+     "1ft 12in +"~ => 2ft
+     "1mile 1hour /" => 1mph
+     "3hour 1mph *" => 3mile
+.}
+
+{,
+
+    .# Length
+
+    0.001:mm:milimeter;
+    0.01:cm:centimeter;
+    1:m:meter;
+    1000:km:kilometer;
+    0.0254:in:inch;
+    0.3048:ft:feet;
+    0.9144:yd:yard;
+    1609.34:mi:mile;
+    1852:nmile:nauticalm;
+
+    .# Mass
+
+    0.000001:mg:milligram;
+    0.001:g:gram;
+    1:kg:kilogram;
+    1016.05:lton:longton;
+    907.185:shton:shortton;
+    6.35029:st:stone;
+    0.453592:lb:pound;
+    0.0283495:oz:ounce;
+
+    .# Time
+
+    1:s:second;
+    60:min:minute;
+    3600:hr:hour;
+    86400:day;
+    604800:week;
+    31536000:yr:year;
+
+    :1e-3:milisecond:ms;
+    :1e-6:microsecond;
+    :1e-9:nanosecond:ns;
+
+
+    .# Data
+
+    1:bit;
+    1000:kilobit:kib;
+    1000 kilobit *:megabit:mib;
+    1000 megabit *:gigabit:gib;
+    1000 gigabit *:terabit:tib;
+    8:byte;
+    1000 byte *:kilobyte:kb;
+    1000 kilobyte *:megabyte:mb;
+    1000 megabyte *:gigabyte:gb;
+    1000 gigabyte *:terabyte:tb;
+
+
+}:unit;
+
+
+.# Conversion functions (Uncomment to use)
+
+.# Type saftey version
+{(1 hold)({num::num from::num to::num, num from * to/})}:to;
+
+.# Regular Version
+.#	{(1 hold)(\@*\/)}:to;
+
+{,
+    {(1 hold)({sub super : super_type,
+        super.__type__ :super_type;
+        super ::__type__ .- ;
+        sub super .+ ;
+        super_type super.:__type__;
+    })}:extends
+
+    class time
+
+    def time::__init__ {n self,
+        n self._to_sec self.:s;
+    }
+
+    def time::to_sec {self,
+        self.s
+    }
+
+    def time::__str__ {self,
+        self.s self._from_sec " " +
+        self :T :C +
+    }
+
+    def time::__repr__ (time.__str__.`)
+
+    def time::_to_sec {n self,
+        n self.scale_factor *
+    }
+
+    def time::_from_sec {n self,
+        n self.scale_factor /
+    }
+
+    def time::__add__ {a b,
+    }
+
+
+    class minute
+
+    minute extends time
+
+    def minute::scale_factor 60
+
+
+    class hour
+
+    hour extends time
+
+    def hour::scale_factor (60 60 *)
+
+} :time;
+
+{:time^, time.minute!}:minute;
+{:time^, time.hour!}:hour;
+
+class versionstr
+export [::versionstr ::v]
+
+def versionstr::__init__ {maj min pat self,
+    majP self.:major;
+    minP self.:minor;
+    pat "" = 0 pat .? P self.:patch;
+}
+
+def ::v { {
+    ~ '.| 3.< ~ versionstr!
+} 0:` }
+
+def versionstr::__str__ {self,
+    "v\"$(self.major).$(self.minor).$(self.patch)\""
+}
+
+def versionstr::__repr__ (versionstr.__str__.`)
+
+
+import ::canvas
+
+export ::viewmat
+export ::viewmat_scaled
+
+
+def ::viewmat_scaled { data scale : cvs canvas^,
+    .# special case for matrix
+    data :T ::matrix = {data.rows :data;} ?
+
+    {,
+        data E :height;
+        data.[0] E :width;
+        scale :scale;
+        "viewmat" :name;
+    } canvas! :cvs;
+
+    data cvs.viewmat
+
+    cvs
+}
+
+def ::viewmat { data : width height scale size viewmat_scaled^,
+    .# special case for matrix
+    data :T ::matrix = {data.rows :data;} ?
+
+    data E :height;
+    data.[0] E :width;
+    width height .< :size;
+
+    .# Set a reasonable scale
+    1 :scale;
+    size 400 :< { 2:scale; } ?
+    size 100 :< { 8:scale; } ?
+    size 40  :< { 16:scale; } ?
+    size 10  :< { 64:scale; } ?
+
+    data scale viewmat_scaled
+}
+[
+    {
+        4  [1 2 3] +
+        [5 6 7]
+    }
+    {
+        [4] [1 2 3] +
+        [5 6 7]
+    }
+    {
+        [4 4 4] [1 2 3] +
+        [5 6 7]
+    }
+    {
+        1 [3 2] L 1 [2] L +
+        [
+          [ 2 2 ]
+          [ 2 2 ]
+          [ 2 2 ]
+        ]
+    }
+    {
+        [[1 2 3]] [1 2 3] +
+        [
+          [ 2 4 6 ]
+        ]
+    }
+    {
+        [[1][2][3]] [10 20 30] + 
+        [
+          [ 11 21 31 ]
+          [ 12 22 32 ]
+          [ 13 23 33 ]
+        ]
+    }
+    {
+        1 [4 3 2] L 1 [4 1 1] L + :E
+        [ 4 3 2 ]
+    }
+    {
+        1 [8 1 6 1] L 1 [7 1 5] L + :E
+        [ 8 7 6 5 ]
+    }
+] :# { test.test }
+{ [{P} 0:` 1 2 3] ["{1}" 2 3 ] } test.test
+{ [{P} 1:` 1 2 3] ["[ {1} ]" 2 3 ] } test.test
+{ [{P} 2:` 1 2 3] ["[ {1} {2} ]" 3 ] } test.test
+{ [{P} 3:` 1 2 3] ["[ {1} {2} {3} ]" ] } test.test
+
+
+{ [1 2 3] [1] :| [2 3] } test.test
+{ [1 2 3] [1 2] :| [3] } test.test
+
+
+{ {, } :K [] } test.test
+.# Test that removing all leaves an empty lise
+{ {, 1:a 2:b } :K [::a ::b] :| [] } test.test
+.# Test that the length is 2
+{ {, 1:a 2:b } :K E 2 } test.test
+
+
+.# Get variables as a dict
+.# pattern to get locals:
+.#  :G .[-1]
+{ {: foo, 10 :G.[-1].:foo; foo }~ 10 } test.test
+
+{ ["a" "b" "c"] :#{"."+} ["a." "b." "c."]} test.test
+
+
+{: a b,
+    1:a;
+    2:b;
+    """$a $b $(a b +)""" :B
+    "1 2 3"
+} test.test
+
+.# :N
+[
+{ [1 2 3 2 1] 2 :N [2|] [[ 1 2 3 2 1 ] [ 1 3 ]] }
+{ [1 2 3 2 1] 1 :N [2|] [[ 1 2 3 2 1 ] [ 0 4 ]] }
+{ "abc" 1    :N [2|] ["abc" [ ] ] }
+{ "abc" 'a   :N [2|] ["abc" [ 0 ]] }
+{ "abcca" 'a :N [2|] ["abcca" [ 0 4 ]] }
+
+
+.# :?
+
+{ { (1) {"a"} (0) {"b"} {"c"} } :? "a" }
+{ { (0) {"a"} (1) {"b"} {"c"} } :? "b" }
+{ { (0) {"a"} (0) {"b"} {"c"} } :? "c" }
+{ { 1 "a" 0 "b" "c" } :? "a" }
+{ { 0 "a" 1 "b" "c" } :? "b" }
+{ { 0 "a" 0 "b" "c" } :? "c" }
+{ { (1) {"a"} {"b"} } :? "a" }
+{ { (0) {"a"} {"b"} } :? "b" }
+{ [ {(0) {"a"}} :?] [ ]  }
+{ [ {(0) {"a"} (0) {"b"}} :?] [ ] }
+
+] :# {test.test}
+.# Parsing and Literals
+
+{1} assert [1]
+{[1]} assert [[1]]
+{['h'i]} assert ["hi"]
+
+.# Basic Binary Math
+{1 1 +} assert [2]
+{5 4 *} assert [20]
+{3 4 /} assert [0.75]
+{1 1 -} assert [0]
+{37 2:%} assert [1]
+
+.# Math Functions
+{0.5 Mc} assert [0.8775825618903728]
+{0.5 Ms} assert [0.479425538604203]
+{0.5 Mt} assert [0.5463024898437905]
+{0.5 MC} assert [1.0471975511965979]
+{0.5 MS} assert [0.5235987755982989]
+{0.5 MT} assert [0.4636476090008061]
+{0.5 ML} assert [-0.3010299956639812]
+{0.5 Ml} assert [-0.6931471805599453]
+{0.5 .^} assert [0.7071067811865476]
+
+.# List
+
+{6R} assert [[1 2 3 4 5 6]]
+{3R#1+} assert [[2 3 4]]
+
+
+.# Vectorized functions
+
+{3R1+} assert [[2 3 4]]
+{3R1-} assert [[0 1 2]]
+{3R2*} assert [[2 4 6]]
+{3R2/} assert [[0.5 1 1.5]]
+{3R2^} assert [[1 4 9]]
+{3R2:%} assert [[1 0 1]]
+{1 3R+} assert [[2 3 4]]
+{1 3R-} assert [[0 -1 -2]]
+{2 3R*} assert [[2 4 6]]
+{2 3R/} assert [[2 1 (2 3/)]]
+{2 3R^} assert [[2 4 8]]
+{2 3R:%} assert [[0 0 2]]
+{[0.5] Mc} assert [[0.8775825618903728 ]]
+{[0.5] Ms} assert [[0.479425538604203  ]]
+{[0.5] Mt} assert [[0.5463024898437905 ]]
+{[0.5] MC} assert [[1.0471975511965979 ]]
+{[0.5] MS} assert [[0.5235987755982989 ]]
+{[0.5] MT} assert [[0.4636476090008061 ]]
+{[0.5] ML} assert [[-0.3010299956639812]]
+{[0.5] Ml} assert [[-0.6931471805599453]]
+{[0.5] .^} assert [[0.7071067811865476 ]]
+
+.# List Builder
+
+{[3,]} assert [[1 2 3]]
+{[3,1+]} assert [[2 3 4]]
+{[4 6,]} assert [[4 5 6]]
+{[0 0.5 2,]} assert [[0 0.5 1 1.5 2]]
+{[10,,2:%0=]} assert [[2 4 6 8 10]]
+{[[1 2] [3 4], *]} assert [[3 8]]
+
+.# Character
+
+{'c!} assert ['C]
+{'C!} assert ['c]
+{'?!} assert ['?]
+{'A 1 +} assert ['B]
+{'B 1 -} assert ['A]
+{1 'A +} assert ['B]
+{100 'A -} assert ['\#']
+
+.# String
+
+{"abcde"!} assert ["ABCDE"]
+{"abcde"U} assert ["edcba"]
+
+.# InterpolateString
+
+{:a, 0:a; "$a"} assert ["0"]
+
+.# Argument Types
+
+{1  {s::num ,s} ~} assert [1]
+{[] {s::list,s} ~} assert [[]]
+{"" {s::list,s} ~} assert [""]
+{"" {s::str ,s} ~} assert [""]
+{"hi" {s::str,s} ~} assert ["hi"]
+{"hi" {s::list,s} ~} assert ["hi"]
+{'C {s::char,s} ~} assert ['C]
+{1 'C "C" {a::any b::any c::any, a b c} ~} assert [1 'C "C"]
+{ {,} {d::dict,d}~} assert [{,}]
+{1 {s::str,} ~} assertfail
+{[1 2 3] {s::str,} ~} assertfail
+
+.# argument copying
+
+{[1 2 3]:& {a$, a B ;;}~} assert [[1 2 3]]
+{[1 2 3]:& {a, a B ;;}~}  assert [[1 2]]
+{[1 2 3]:& {a$::list, a B ;;}~} assert [[1 2 3]]
+{[1 2 3]:& {a::list, a B ;;}~}  assert [[1 2]]
+{[1 2 3]:& {a$::num, a B ;;}~} assertfail
+{[1 2 3]:& {a::num, a B ;;}~}  assertfail
+
+{:a(2), 1 ({a: b(a), a b})} assert [1 2]
+{:a(9), 2 ({a: a(a 1 +), a})} assert [2]
+{{: b({,}), b}:x; 1 x.:y; x} assert [{,1:y}]
+
+.# Dictionaries
+
+{{,}}  assert [{,}]
+{{,5 "hi" 'C}}  assert [{,}]
+{{, 5:x}.x} assert [5]
+{5 {,}.:x.x} assert [5]
+{ {,{,5:x}:x;}.x.x} assert [5]
+{ {,5:x} "x" H} assert [1]
+{ {,5:x} "y" H} assert [0]
+
+.# Symbols
+{ {, 1:"FOO" } ."FOO" } assert [1]
+
+.# Meta dictionaries
+
+{{, 1:a} {, 2:b} :M .a} assert [1]
+{{, 1:a} {, 2:b} :M .b} assert [2]
+{{, 1:a} {, 2:b 10:a} :M .a} assert [1]
+{{, 1:a {, 2:b}:__meta__} .a} assert [1]
+{{, 1:a {, 2:b}:__meta__} .b} assert [2]
+{{, 1:a {, 2:b 10:a}:__meta__} .a} assert [1]
+
+.# Lambdas
+{({1})} assert [1]
+{({:a(10), a})} assert [10]
+{3 ({a, a})} assert [3]
+{3 ({a : b(0), a b})} assert [3 0]
+
+.# Captures
+({:a b c f g h,
+
+    1:a;
+    {:a^, a}:f;
+    0:a;
+    {f} assert [1]
+
+    1:a;
+    {x : a^, x a}:f;
+    0:a;
+    {100 f} assert [100 1]
+
+    1:a;
+    {x : a^ b(9), x a b}:f;
+    0:a;
+    0:b;
+    {100 f} assert [100 1 9]
+
+    .# Argument takes precedence
+    1:a;
+    {a : a^, a}:f;
+    0:a;
+    {100 f} assert [100]
+
+    {, 1:a 2:b }:b;
+    {:b^, b.a b.b b.c}:g;
+    3 b.:c;
+    20 b.:b;
+    0:b;
+    {g} assert [1 20 3]
+
+})
+
+.# push self
+({:d x y m,
+
+    {, 1:x 2:y {1+}:inc }:d;
+    {d.x d.y} assert [1 2]
+    {d.y d.inc} assert [3]
+
+
+    {self, self.x self.y +} d.:foo;
+    {a b self, a b self.x self.y} d.:bar;
+
+    { {d.foo} assert [3] } assertfail
+    { {10 20 d.bar} assert [10 20 1 2] } assertfail
+
+    1 d.M.:__pushself__;
+
+    {d.foo} assert [3]
+    {10 20 d.bar} assert [10 20 1 2]
+
+    d.M ::__pushself__ .-
+
+    { {d.foo} assert [3] } assertfail
+
+    1 d.M.:__pushself__;
+
+    {d.foo} assert [3]
+    {10 20 d.bar} assert [10 20 1 2]
+
+    {, {other self, other.a self.a + other.b self.b + J}:__add__ }:m;
+    {, 1:a 2:b m:__meta__ }:x;
+    {, 3:a 4:b m:__meta__ }:y;
+
+    .# if self is not pushed, should have an empty stack
+    { x y + } assertfail
+    .# if self is not pushed, should operate on the first x and y
+    .# this is no longer the case since operator overloads are
+    .# always take the same number of args as the overloaded op
+    .# which would ignore the extra x in this case
+    .# { x y y + } assert [[4 6]]
+
+    1 m.:__pushself__;
+
+    {x y +} assert [[4 6]]
+})
+
+
+({:d,
+
+    .# Create dict with strings
+    {, 1:x 2:y } :d;
+    3 d.:["Hello!"];
+    4 d.:["foo bar"];
+    5 d.:["var"];
+
+    {d "Hello!" H } assert [1]
+    {d "var" H } assert [1]
+    {d ::var H } assert [1]
+    {d "foo bar" H } assert [1]
+    {d :E} assert [5]
+    {d :V C [1 2 3 4 5] =} assert [1]
+})
+
+.# get/set block metadata
+({:args,
+    [
+        {,
+          ::a:name;
+          ::simple:argtype;
+        } {,
+          ::num:type;
+          1:copy;
+          ::b:name;
+          ::typed:argtype;
+        } {,
+          ::str:type;
+          0:copy;
+          ::c:name;
+          ::typed:argtype;
+        } {,
+          ::any:type;
+          1:copy;
+          ::d:name;
+          ::typed:argtype;
+        }
+    ]:args;
+
+    { {a b$::num c::str d$ : a(1) b(4), } .|.args } assert [args]
+})
+
+.# ::block S: duplicate with locals
+{{} Mb .| ::locals H} assert [1]
+{{: ,} Mb .| ::locals H} assert [1]
+
+.# Split into list of blocks
+{{a, b c + [10,] $% {a b} () 1 2 :k .:k k.`} .* "" %}
+assert
+["{b}{c}{+}{[10, ]}{$}{%}{{a b}}{()}{1}{2}{:k}{.:k}{k.`}"]
+
+.# Convert block containing var or op into list of symbols
+{ {x} :S }   assert [ [ ::x ] ]
+{ {x y} :S } assert [ [ ] ]
+{ {+} :S }   assert [ [ ::__add__ ::__radd__ ] ]
+{ {"x"} :S } assert [ [ ] ]
+
+.# copy block without header
+{ {a b, } .! P } assert ["{}"]
+{ {a b, a b +} .! P } assert ["{a b +}"]
+
+.# type override
+{ {, {, ::foo:__type__ }:__meta__ } {x::foo, 1 } ~} assert [1]
+{[1 2 3 [1 2]] 1 .= [ 1 0 0 [ 1 0 ] ] } test.test
+{"abc" "Abc" .= [0 1 1]} test.test
+
+{ [1 2 3 4] [2 3] .- [ 1 2 ] } test.test
+{ [1 2 3 4] 2 .- [ 1 2 4 ] } test.test
+
+.# TODO: .| locals appears to be a bit broken
+.{
+{ {: a("hi") b(a), }.locals {, "hi":a {a}:b } }
+aya> {: a("hi") b(a), }
+{:  b(a) a("hi"),} 
+aya> {: a("hi") b(a), } .locals
+{,} 
+aya> {: a b, }:locals
+{: b a,} 
+aya> {: a b, }.locals
+{,
+  0:b;
+  0:a;
+} 
+aya> {: a(1) b, }.locals
+{,
+  0:b;
+} 
+.}
+.# This file loads and auto-runs many examples
+
+import ::plot
+1 plot.plot.:_supress_windows
+
+[
+"100doors"
+"account"
+"asciitrain"
+"bst"
+"checked"
+"class"
+"collatz"
+"defaultdict"
+"fibonacci"
+"fibs_below"
+"for_loop_list"
+"genetic"
+"greeter"
+"hello_world"
+"isprime"
+"mandelbrot"
+"misc"
+"monte_carlo"
+"nn"
+"nth_fib"
+"product"
+"quicksort"
+"quine"
+"thread"
+"tocamel"
+"visited_cities"
+"plot/bernstein"
+"plot/betting"
+"plot/lorenz"
+"plot/multi"
+"plot/normal"
+"plot/parametric"
+"plot/rainbow"
+"plot/random_wave"
+"plot/randomwalk"
+"plot/scatter"
+"plot/simple_functions"
+"plot/sinsrs"
+"plot/weierstrass"
+] :# {ex, 
+    "\n## $ex:" :P
+    [ "$(:{sys.ad})/examples/$ex.aya" :F ];
+} ;
+
+.# Revert supress windows
+0 plot.plot.:_supress_windows
+.# Run inside aya directory
+.#
+.# cd path/to/aya
+.# rm -rf fs_test
+.# mkdir fs_test
+.# java -jar aya.jar fs_test/ ../test/filesystem.aya
+
+import ::image
+
+.{ Function that appends the platform-specific file separator to a string .}
+{path::str, path :9s + } :sep;
+
+.# Create a directory
+"dir1" :{sys.mkdir}
+{"." :{sys.readdir} ["dir1"sep] = 1} test.test
+
+.# Change working directory
+"dir1" :{sys.cd}
+"dir2" :{sys.mkdir}
+{"." :{sys.readdir} ["dir2"sep] = 1} test.test
+
+".." :{sys.cd}
+{"." :{sys.readdir} ["dir1"sep] = 1} test.test
+
+"../../" :{sys.set_ad}
+"../" :{sys.cd}
+{"fs_test" :{sys.readdir} ["dir1"sep] = 1} test.test
+
+.# Set aya dir back to normal
+"." :{sys.set_ad}
+"fs_test" :{sys.cd}
+{"." :{sys.readdir} ["dir1"sep] = 1} test.test
+"dir1" :{sys.cd}
+{"." :{sys.readdir} ["dir2"sep] = 1} test.test
+
+.# Return to aya dir
+"" :{sys.cd}
+.# Go into fs_test dir
+"fs_test" :{sys.cd}
+{"." :{sys.readdir} ["dir1"sep] = 1} test.test
+
+.# cd into nested directory
+"dir1/dir2/" :{sys.cd}
+{"." :{sys.readdir} [] = 1} test.test
+"../.." :{sys.cd}
+{"." :{sys.readdir} ["dir1"sep] = 1} test.test
+
+
+.# Write a file
+"hello.txt" 'w :{fstream.O} :id;
+{"Hello!" id :{fstream.O} 1} test.test
+{id 'c :{fstream.O} 1} test.test
+.# Use C to sort lists when checking if they are equal
+{"." :{sys.readdir}C ["dir1"sep "hello.txt"]C = 1} test.test
+
+.# Read a file
+"hello.txt" 'r :{fstream.O} :id;
+{id 'a :{fstream.O} "Hello!"} test.test
+{id 'c :{fstream.O} 1} test.test
+
+
+.# Write a file in a directory
+"dir1/two-plus-two.txt" 'w :{fstream.O} :id;
+{"four" id :{fstream.O} 1} test.test
+{id 'c :{fstream.O} 1} test.test
+.# Use C to sort lists when checking if they are equal
+{"." :{sys.readdir}C ["dir1"sep "hello.txt"]C = 1} test.test
+{"dir1/" :{sys.readdir}C ["dir2"sep "two-plus-two.txt"]C = 1} test.test
+
+.# Read a file in a directory
+"dir1/two-plus-two.txt" 'r :{fstream.O} :id;
+{id 'a :{fstream.O} "four"} test.test
+{id 'c :{fstream.O} 1} test.test
+
+.# Create a directory in a directory
+"dir1/dir2/dir3" :{sys.mkdir}
+{"dir1/dir2" :{sys.readdir} ["dir3"sep] = 1} test.test
+
+.# Create a single pixel image
+{, 1:width 1:height [41]:r [164]:g [34]:b }:img;
+img "out.png" :{image.write}
+{"." :{sys.readdir}C ["dir1"sep "hello.txt" "out.png"]C = 1} test.test
+
+.# Read an image
+"out.png" image.read :img;
+{img.pixels [[41 164 34 255]]} test.test
+[
+
+.# Transition between strings and lists
+{ "abc" 0 :J ['a 'b 'c 0] }
+{ "abc" :& 0 :J ; ['a 'b 'c 0] }
+{ "abc" :& 0 :J ; B; "abc" }
+
+{[] 'a :J "a"}
+{[] 'a J "a"}
+
+{'a 'b :J "ab"}
+{'a 'b J "ab"}
+
+{1 1 []J + [2]}
+{1 1 []:J + [2]}
+
+] :# { test.test }.# Two implementations of the collatz conjecture
+.# See "examples/collatz"
+
+{
+    [10, $1={;0}{0\{n,Bn2:%n3*Bn2/.?$1>}W;}.?  ]
+    [ 0 1 7 2 5 8 16 3 19 6 ]
+} test.test
+
+{
+    [10, $1={;0}{0\{\B\$$2:%\3*B@2/.?$1>}W;}.? ]
+    [ 0 1 7 2 5 8 16 3 19 6 ]
+} test.test
+[
+{ [1 2 3] 0 I 1 }
+{ [1 2 3] [0] I [1] }
+{ [[1 2 3]] 0 I [1 2 3] }
+{ [[1 2 3]] [0] I [[1 2 3]] }
+
+{ [1] 2 L [ [1] [1] ] }
+{ 1 2 L  [1 1] }
+{ 0 [2 2] L [ [0 0] [0 0] ] }
+
+{ "a." '. S ["a"] }
+{ "a." "\." S ["a"] }
+
+{ ".a" '. S ["" "a"] }
+{ ".a" "\." S ["" "a"] }
+
+{ "*"  '* S [] }
+{ "*"  "\*" S [] }
+
+{ "*"  '. S ["*"] }
+{ "*"  "\." S ["*"] }
+
+{ "a.b.c"  '. S ["a" "b" "c"] }
+{ "a.b.c"  "\." S ["a" "b" "c"] }
+
+{ "a.b.c." '. S ["a" "b" "c"] }
+{ "a.b.c." "\." S ["a" "b" "c"] }
+
+{ 0.1 .\ 0 = 1 }
+{ 0.1 .\ 0 }
+
+.# H
+{ [1 2 3] 2  H  1  }
+{ [1 2 3] 9  H  0  }
+{ "abc"   'a H  1  }
+{ "abc"   'z H  0  }
+{ []      1  H  0  }
+{ ""      'a H  0  }
+{ ""      1  H  0  }
+
+.# N
+{ [1 2 3] 2  N  1  }
+{ [1 2 3] 9  N  -4 }
+{ "abc"   'a N  0  }
+{ "abc"   'z N  -4 }
+{ []      1  N  -1 }
+{ ""      'a N  -1 }
+{ ""      1  N  -1 }
+
+] :# { test.test }
+.# This files range creation features
+.# Foring modules or other aya code, see base/test.aya
+
+[
+
+.# n R
+{ -1 R [-1] }
+{ 0 R [] }
+{ 1 R [1] }
+{ 3 R [1 2 3] }
+{ -3 R [-3 -2 -1] }
+
+.# n .R
+{ -1 .R [0] }
+{ 0 .R [] }
+{ 1 .R [0] }
+{ 3 .R [0 1 2] }
+{ -3 .R [-2 -1 0] }
+
+.# [lo hi] R
+{ [1 3] R [1 2 3] }
+{ [3 1] R [3 2 1] }
+{ [-2 2] R [-2 -1 0 1 2] }
+{ [2 2] R [2] }
+{ [0 0] R [0] }
+{ [-1 -1] R [-1] }
+
+.# [lo next hi] R
+{ [0 2 10] R [0 2 4 6 8 10] }
+{ [0 -2 -10] R [0 -2 -4 -6 -8 -10] }
+{ [-1 3 12] R [-1 3 7 11] }
+
+] :# { test.test }.# This file tests the core language features. For testing modules or
+.#   other aya code, see base/test.aya
+
+"Test file loaded!\n" .P
+
+.#? E assert L\n  Evaluates E as a list, throws an error if [E~] != L
+{
+    {~\ [1|] [1|{{~}O}] .B .* test.test }0:`
+} :assert;
+
+{blk::block,
+    .; .# Clear stack
+    {blk} {;::__fail} .K .A [::__fail] =! {
+        "assertfail: code $(blk.`) should have failed but did not" .D
+    } ?
+}:assertfail;
+
+{1} assert [1]
+{ "fail".D } assertfail
+
+{fname,
+    {, 
+    "* Running tests '$fname'..." :P
+    "$(:{sys.ad})$fname.aya" :F
+    "  Tests complete: '$fname'" :P
+    };
+}:load_test;
+
+.# Run tests in their own scope
+"test/core" load_test
+"test/list" load_test
+"test/ops" load_test
+"test/dot_ops" load_test
+"test/colon_ops" load_test
+"test/range" load_test
+"test/broadcast" load_test
+"test/unicode" load_test
+"test/misc" load_test
+"test/test_op_overload" load_test
+
+.# Base
+"test/base/test_sym" load_test
+"test/base/test_num" load_test
+"test/base/test_char" load_test
+"test/base/test_list" load_test
+"test/base/test_str" load_test
+"test/base/test_block" load_test
+
+
+.# Std
+[
+    "color"
+    "date"
+    "enum"
+    "csv"
+    "io"
+    "la"
+    "map"
+    "matrix"
+    "set"
+    "stats"
+    "stack"
+] :# {mod,
+    {, "test/std/test_$mod" load_test };
+};
+
+.# Import entire standard library
+"Importing standard library..." :P
+:{sys.ad} "/std"+ :{sys.readdir}:# {".aya".^ S W} :# {name, "importing $name...":P import name} ;
+"Import finished!" :P
+"":P
+
+"test/golf/golf_examples" load_test
+
+.# Also load and auto-run many examples
+"test/examples" load_test
+.# This file tests operator overloading features
+.# For testing modules or other aya code, see base/test.aya
+
+{,
+
+  ::vec :__type__;
+  1 :__pushself__;
+
+  {l meta, {, l:l} meta :M}:__new__;
+  {self, "<" self.lPB;V; ">" ++}:__str__:__repr__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l + self.M!}:__add__;
+  {self o, self.l o + self.M!}:__radd__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l * self.M!}:__mul__;
+  {self o, self.l o * self.M!}:__rmul__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l - self.M!}:__sub__;
+  {self o, self.l o:T ::vec = {o.l} {o} .? - self.M!}:__rsub__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l / self.M!}:__div__;
+  {self o, self.l o:T ::vec = {o.l} {o} .? / self.M!}:__rdiv__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l ^ self.M!}:__pow__;
+  {self o, self.l o:T ::vec = {o.l} {o} .? ^ self.M!}:__rpow__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l :% self.M!}:__mod__;
+  {self o, self.l o:T ::vec = {o.l} {o} .? :% self.M!}:__rmod__;
+
+  {o self, o:T ::vec = {o.l} {o} .? self.l .% self.M!}:__idiv__;
+  {self o, self.l o:T ::vec = {o.l} {o} .? .% self.M!}:__ridiv__;
+
+  {o self, o self.l < self.M!}:__lt__;
+  {o self, o self.l > self.M!}:__gt__;
+  {o self, o self.l :< self.M!}:__leq__;
+  {o self, o self.l :> self.M!}:__geq__;
+  {o self, o:T ::vec = {o.l self.l =} 0 .?}:__eq__;
+
+  {self, self.l U self.:l }:__reverse__;
+  {self, self.l T self.M!}:__negate__;
+  {self, self.l C self.:l }:__sort__;
+
+  {self, self.l #B self.:l}:__inc__;
+  {self, self.l #V self.:l}:__dec__;
+  {self, self.lE }:__len__;
+
+
+  {n self, [n,;.Q] self.:l}:__random__;
+
+  {self, self.l M! self.M!}:__fact__;
+  {self, self.l Ms self.M!}:__sin__;
+  {self, self.l Mc self.M!}:__cos__;
+  {self, self.l Mt self.M!}:__tan__;
+  {self, self.l MS self.M!}:__asin__;
+  {self, self.l MC self.M!}:__acos__;
+  {self, self.l MT self.M!}:__atan__;
+  {self, self.l Ml self.M!}:__ln__;
+  {self, self.l ML self.M!}:__log__;
+  {self, self.l Me self.M!}:__exp__;
+  {self, self.l .^ self.M!}:__sqrt__;
+
+  {self, self.l #Md self.M!}:__float__;
+  {self, self.l #.! self.M!}:__signum__;
+  {self, self.l .| self.M!}:__abs__;
+
+  {self n, self.l n .< self.M!}:__head__;
+  {self n, self.l n .> self.M!}:__tail__;
+
+  {blk self, self.l :# {blk} self.M! }:__each__;
+
+  {ix self, self.l.[ix]}:__getindex__;
+
+  {val ix self, val self.l.:[ix]; self }:__setindex__;
+
+  {self, self.l E 0 =!}:__bool__;
+}:vec;
+
+{v : vec^, vR vec! } vec.:__range__;
+
+"add/radd..." :P
+{,
+    [1 2 3] vec! :v;
+    { v P "< 1 2 3 >" } test.test
+    { 3 v + P "< 4 5 6 >" } test.test
+    { v 3 + P "< 4 5 6 >" } test.test
+    { [1 2 3] v + P "[ < 2 3 4 > < 3 4 5 > < 4 5 6 > ]" } test.test
+    { v v + P "< 2 4 6 >" } test.test
+};
+
+"sub/rsub..." :P
+{,
+    [1 2 3] vec! :v;
+    { v P "< 1 2 3 >" } test.test
+    { 3 v - P "< 2 1 0 >" } test.test
+    { v 3 - P "< -2 -1 0 >" } test.test
+    { v v - P "< 0 0 0 >" } test.test
+    { [1 2 3] v - P "[ < 0 -1 -2 > < 1 0 -1 > < 2 1 0 > ]" } test.test
+    { v [1 2 3] - P "[ < 0 1 2 > < -1 0 1 > < -2 -1 0 > ]" } test.test
+};
+
+"mul/rmul..." :P
+{,
+    [1 2 3] vec! :v;
+    { 3 v * P "< 3 6 9 >" } test.test
+    { v 3 * P "< 3 6 9 >" } test.test
+    { [1 2 3] v * P "[ < 1 2 3 > < 2 4 6 > < 3 6 9 > ]" } test.test
+    { v [1 2 3] * P "[ < 1 2 3 > < 2 4 6 > < 3 6 9 > ]" } test.test
+    { v v * P "< 1 4 9 >" } test.test
+};
+
+"div/rdiv..." :P
+{,
+    [2 4 6] vec! :v;
+    { 24 v / P "< 12 6 4 >" } test.test
+    { v 2 / P "< 1 2 3 >" } test.test
+    { [12 24] v / P "[ < 6 3 2 > < 12 6 4 > ]" } test.test
+    { v [1 2] / P "[ < 2 4 6 > < 1 2 3 > ]" } test.test
+    { v v / P "< 1 1 1 >" } test.test
+};
+
+
+
+"mod/rmod..." :P
+{,
+    [1 2 3] vec! :v;
+    { 2 v :% P "< 0 0 2 >" } test.test
+    { v 2 :% P "< 1 0 1 >" } test.test
+    { [2 3 4] v :% P "[ < 0 0 2 > < 0 1 0 > < 0 0 1 > ]" } test.test
+    { v [2 3 4] :% P "[ < 1 0 1 > < 1 2 0 > < 1 2 3 > ]" } test.test
+    { v v :% P "< 0 0 0 >" } test.test
+};
+
+
+"idiv/rdiv..." :P
+{,
+    [1 2 3] vec! :v;
+    { 2 v .% P "< 2 1 0 >" } test.test
+    { v 2 .% P "< 0 1 1 >" } test.test
+    { [2 3 4] v .% P "[ < 2 1 0 > < 3 1 1 > < 4 2 1 > ]" } test.test
+    { v [2 3 4] .% P "[ < 0 1 1 > < 0 0 1 > < 0 0 0 > ]" } test.test
+    { v v .% P "< 1 1 1 >" } test.test
+};
+
+"lt..." :P
+{,
+    [1 2 3] vec! :v;
+    { 3 v < P "< 0 0 0 >" } test.test
+    { [1 2 3] v < P "[ < 0 1 1 > < 0 0 1 > < 0 0 0 > ]" } test.test
+};
+
+"gt..." :P
+{,
+    [1 2 3] vec! :v;
+    { 3 v > P "< 1 1 0 >" } test.test
+    { [1 2 3] v > P "[ < 0 0 0 > < 1 0 0 > < 1 1 0 > ]" } test.test
+};
+
+"leq..." :P
+{,
+    [1 2 3] vec! :v;
+    { 3 v :< P "< 0 0 1 >" } test.test
+    { [1 2 3] v :< P "[ < 1 1 1 > < 0 1 1 > < 0 0 1 > ]" } test.test
+};
+
+"geq..." :P
+{,
+    [1 2 3] vec! :v;
+    { 3 v :> P "< 1 1 1 >" } test.test
+    { [1 2 3] v :> P "[ < 1 0 0 > < 1 1 0 > < 1 1 1 > ]" } test.test
+};
+
+"eq..." :P
+{,
+    [1 2 3] vec! :v;
+    { (v v =) 1 } test.test
+    { (v v1+ =) 0 } test.test
+    { (1 v =) 0 } test.test
+};
+
+
+"reverse..." :P
+{,
+    [1 2 3] vec! :v;
+    { v U P "< 3 2 1 >" } test.test
+};
+
+"negate..." :P
+{,
+    [1 2 3] vec! :v;
+    { v T P "< -1 -2 -3 >" } test.test
+};
+
+"sort..." :P
+{,
+    { [6 7 4 5 3] vec! :v P "< 6 7 4 5 3 >" } test.test
+    { v C P "< 3 4 5 6 7 >" } test.test
+};
+
+"inc..." :P
+{,
+    [1 2 3] vec! :v;
+    { v BB P "< 3 4 5 >" } test.test
+};
+
+"dec..." :P
+{,
+    [1 2 3] vec! :v;
+    { v VV P "< -1 0 1 >" } test.test
+};
+
+"len..." :P
+{,
+    [1 2 3] vec! :v;
+    { v E 3 } test.test
+};
+
+"range..." :P
+{,
+    {3 vecR P "< 1 2 3 >" } test.test
+    {[3 6] vec R P "< 3 4 5 6 >" } test.test
+};
+
+"random..." :P
+{,
+    [] vec! :v;
+    { 3 v Q .__len__ 3 } test.test
+};
+
+
+"each..." :P
+{,
+    [1 2 3] vec! :v;
+    { v :# {1+} P "< 2 3 4 >" } test.test
+};
+
+
+"math..." :P
+{,
+    [0 1] vec! :v;
+    { v M! P "< 1 1 >" } test.test
+    { v Ms P "< 0 .84147098 >" } test.test
+    { v Mc P "< 1 .54030231 >" } test.test
+    { v Mt P "< 0 1.55740772 >" } test.test
+    { v MS P "< 0 1.57079633 >" } test.test
+    { v MC P "< 1.57079633 0 >" } test.test
+    { v MT P "< 0 .78539816 >" } test.test
+};
+
+{,
+    [1 2] vec! :v;
+    { v Ml P "< 0 .69314718 >" } test.test
+    { v ML P "< 0 .30103 >" } test.test
+    { v Me P "< 2.71828183 7.3890561 >" } test.test
+    { v .^ P "< 1 1.41421356 >" } test.test
+};
+
+{,
+    [-2 1 0 -3.4] vec! :v;
+    { v .| P "< 2 1 0 3.4 >" } test.test
+    { v .! P "< -1 1 0 -1 >" } test.test
+};
+
+{,
+    [:2r3 :2z 2] vec! :v;
+    { v Md .l #:T [::num ::num ::num] } test.test
+};
+
+"head/tail..." :P
+{,
+    [1 2 3 4 5] vec! :v;
+    { v 3 .> P "< 3 4 5 >" } test.test
+    { v 3 .< P "< 1 2 3 >" } test.test
+};
+
+"getindex..." :P
+{,
+    [1 2 3 4 5] vec! :v;
+    { v.[0] 1 } test.test
+    { v.[-1] 5 } test.test
+};
+
+"setindex..." :P
+{,
+    [1 2 3 4 5] vec! :v;
+    { 99 v.:[2] P "< 1 2 99 4 5 >" } test.test
+    0:i;
+    { 100 v.:[i] P "< 100 2 99 4 5 >" } test.test
+};
+
+"bool..." :P
+{,
+    [1 2 3 4 5] vec! :v;
+    { v 't 'f .? 't } test.test
+    [ ] vec! :v;
+    { v 't 'f .? 'f } test.test
+};
+
+
+
+
+"scope..." :P
+vec:foo;
+0 :vec; .# Vec no longer exists in global scope
+{ [1 2 3] foo! P "< 1 2 3 >" } test.test
+foo:vec;
+[
+
+{ {, 1:¥}.¥ 1 }
+{ 1 {¥,¥}~ 1 }
+{ {:¥(10), ¥ }~ 10 }
+{ {:¥(10), {:¥^, ¥ }}~ ~ 10 }
+{ {: ¥(1) §(2), [ ¥§ ] }~ [1 2] } 
+
+
+{ 1 ::M+ {,} :D ."M+" 1 }
+{ 1 ::.+ {,} :D .".+" 1 }
+{ 1 :::+ {,} :D .":+" 1 }
+
+{:__cdict__, 
+    {,
+        1:x
+        2:"@"
+        3:"3"
+        4:"¢"
+    }:__cdict__;
+
+    [ ¢x ¢@ ¢3 ¢¢ ]
+    [ 1  2  3  4  ]
+}
+
+] :# {test.test}

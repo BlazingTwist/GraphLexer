@@ -1,0 +1,3 @@
+[submodule "interpreter/src/lib/mvzr"]
+	path = interpreter/src/lib/mvzr
+	url = https://github.com/mnemnion/mvzr.git

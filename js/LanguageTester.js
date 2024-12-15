@@ -23,9 +23,91 @@ const LanguageTester = class LanguageTester {
         this.inputField.element.addEventListener("input", () => {
             /** @type {string} */
             let inputStr = instance.inputField.element.value;
-            let startTime = Date.now();
+            const startTime = Date.now();
             let evalResult = instance.langEval.evaluateAll(inputStr);
-            let endTime = Date.now();
+            const endTime = Date.now();
+
+            const wasmStartTime = Date.now();
+            // TODO compare results...
+            instance.wasmModel.evaluate(12 /* TODO HACK */, inputStr, wasmResult => {
+                const wasmEndTime = Date.now();
+                console.log(`wasm took ${wasmEndTime - wasmStartTime} ms | matchLen: ${wasmResult.len}`);
+
+                if (evalResult.result.len !== wasmResult.len) {
+                    console.error(`evalResult.len (${evalResult.result.len}) != wasmResult.len (${wasmResult.len})`);
+                }
+
+                /**
+                 * @param {LangTag[]} jsTags
+                 * @param {WasmInterpreter.WasmLangTag[]} wasmTags
+                 */
+                const compareTags = (jsTags, wasmTags) => {
+                    if (jsTags.length !== wasmTags.length) {
+                        console.error(`jsTags.len (${jsTags.length}) != wasmTags.len (${wasmTags.length})`);
+                    } else {
+                        for (let i = 0; i < jsTags.length; i++) {
+                            const jsTag = jsTags[i];
+                            const wasmTag = wasmTags[i];
+                            if (jsTag.name !== wasmTag.tagName) {
+                                console.error(`jsTag.name (${jsTag.name}) != wasmTag.name (${wasmTag.tagName})`);
+                            }
+                            if (jsTag.index !== wasmTag.index) {
+                                console.error(`jsTag.index (${jsTag.index}) != wasmTag.index (${wasmTag.index})`);
+                            }
+                            if (jsTag.len !== wasmTag.len) {
+                                console.error(`jsTag.len (${jsTag.len}) != wasmTag.len (${wasmTag.len})`);
+                            }
+                            compareTags(jsTag.subTags, wasmTag.subTags);
+                        }
+                    }
+                }
+                compareTags(evalResult.result.tags, wasmResult.tags);
+
+                if ((evalResult.evalError === undefined) !== (wasmResult.error === undefined)) {
+                    console.error(`evalResult.error ? ${evalResult.evalError !== undefined} != wasmResult.error ? ${wasmResult.error !== undefined}`);
+                } else if (evalResult.evalError !== undefined) {
+                    const jsErr = evalResult.evalError;
+                    const wasmErr = wasmResult.error;
+
+                    if (jsErr.type === "StackOverflow" && wasmErr.type !== "InfiniteLoop") {
+                        console.error(`js errType (${jsErr.type}) != wasm errType (${wasmErr.type})`);
+                    } else if (jsErr.type === "InvalidInput" && wasmErr.type !== "NoMatch") {
+                        console.error(`js errType (${jsErr.type}) != wasm errType (${wasmErr.type})`);
+                    }
+
+                    if (jsErr.message !== wasmErr.message) {
+                        console.warn(`jsErr msg (${jsErr.message}) != wasmErr msg (${wasmErr.message})`);
+                    }
+
+                    if (jsErr.tagStack.length !== wasmErr.tagStack.length) {
+                        console.error(`jsErr tags.len (${jsErr.tagStack.length}) != wasmErr tags.len (${wasmErr.tagStack.length})`);
+                    } else {
+                        for (let i = 0; i < jsErr.tagStack.length; i++) {
+                            const jsErrTag = jsErr.tagStack[i];
+                            const wasmErrTag = wasmErr.tagStack[i];
+                            if (jsErrTag !== wasmErrTag) {
+                                console.error(`jsErrTag[${i}] (${jsErrTag}) != wasmErrTag[${i}] (${wasmErrTag})`);
+                            }
+                        }
+                    }
+
+                    if (jsErr.stateStack.length !== wasmErr.stateStack.length) {
+                        console.error(`jsErr states.len (${jsErr.stateStack.length}) != wasmErr states.len (${wasmErr.stateStack.length})`);
+                    } else {
+                        for(let i = 0; i < jsErr.stateStack.length; i++) {
+                            const jsErrState = jsErr.stateStack[i];
+                            const wasmErrState = wasmErr.stateStack[i];
+                            if(jsErrState !== wasmErrState) {
+                                console.error(`jsErrState[${i}] (${jsErrState}) != wasmErrState[${i}] (${wasmErrState})`);
+                            }
+                        }
+                    }
+
+                    if(jsErr.committedInput !== wasmErr.committedInput) {
+                        console.error(`jsErr committed (${jsErr.committedInput}) != wasmErr committed (${wasmErr.committedInput})`);
+                    }
+                }
+            });
 
             let numUnmatched = (evalResult.unmatchedStr || "").length;
             let numMatched = inputStr.length - numUnmatched;
@@ -38,7 +120,7 @@ const LanguageTester = class LanguageTester {
             let tagIdx = 0;
             for (let rootTag of evalResult.result.tags) {
                 /** @type {{tag: LangTag, tagIdx: number, isOpen: boolean}[]} */
-                let tagMarkerStack = [{ tag: rootTag, tagIdx: tagIdx, isOpen: false }];
+                let tagMarkerStack = [{tag: rootTag, tagIdx: tagIdx, isOpen: false}];
                 tagIdx++;
                 while (tagMarkerStack.length > 0) {
                     let tagMarker = tagMarkerStack.pop();
@@ -50,7 +132,7 @@ const LanguageTester = class LanguageTester {
                         // push children
                         for (let i = tagMarker.tag.subTags.length - 1; i >= 0; i--) {
                             let child = tagMarker.tag.subTags[i];
-                            tagMarkerStack.push({ tag: child, tagIdx: tagIdx, isOpen: false });
+                            tagMarkerStack.push({tag: child, tagIdx: tagIdx, isOpen: false});
                             tagIdx++;
                         }
 
@@ -82,16 +164,14 @@ const LanguageTester = class LanguageTester {
 
                         /** @type {function(PointerEvent)} */
                         const onHoverTag = (e) => {
-                            console.log("target: ");
-                            console.log(e.target);
                             e.stopPropagation();
                             label.element.classList.add("fmt-text-highlight");
                             strElement.element.classList.add("fmt-text-highlight");
                             tagTextElement.element.classList.add("fmt-text-highlight");
-                            if(e.target === label.element || e.target === strElement.element) {
-                                tagTextElement.element.scrollIntoView({ behavior: "smooth", block: "center" });
-                            }else{
-                                label.element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            if (e.target === label.element || e.target === strElement.element) {
+                                tagTextElement.element.scrollIntoView({behavior: "smooth", block: "center"});
+                            } else {
+                                label.element.scrollIntoView({behavior: "smooth", block: "center"});
                             }
                         }
                         label.element.addEventListener("pointerover", onHoverTag);
@@ -133,7 +213,7 @@ const LanguageTester = class LanguageTester {
                 currentText.child(`<span>${inputStr.substring(curTextPos, numMatched)}</span>`);
             }
 
-            if(currentElementStack.length !== 1) {
+            if (currentElementStack.length !== 1) {
                 console.error("CurrentElementStack is in an illegal state:");
                 console.error(currentElementStack);
                 throw new Error("either closed to few or too many tags");
@@ -255,10 +335,13 @@ const LanguageTester = class LanguageTester {
     }
 
     /**
+     * // TODO migrate to wasmModel when done testing
      * @param {LangEvaluator} langEval
+     * @param {WasmInterpreter.LanguageModel} wasmModel
      */
-    constructor(langEval) {
+    constructor(langEval, wasmModel) {
         this.langEval = langEval;
+        this.wasmModel = wasmModel;
 
         let windowHandle = Templating.html(`<div></div>`)
             .child(Templating.html(`<div style="display: flex; align-items: center; gap: 10px;"></div>`)
