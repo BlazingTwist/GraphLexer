@@ -228,15 +228,20 @@ const WasmInterpreter = {
             }
 
             fetch("/interpreter/zig-out/bin/GraphLexer-Wasm.wasm")
-                .then(initWasm)
-                .catch(_ => {
-                    const fallbackPath = "/js/interpreter/GraphLexer-Wasm.wasm";
-                    console.debug(`fallback to ${fallbackPath}`);
-                    fetch(fallbackPath)
-                        .then(initWasm)
-                        .catch(reason => {
-                            console.error(`Failed to load GraphLexer: ${reason}`);
+                .then(response => {
+                    if(response.ok) {
+                        initWasm(response);
+                    }else{
+                        const fallbackPath = "/GraphLexer/js/interpreter/GraphLexer-Wasm.wasm";
+                        console.log(`fallback to ${fallbackPath}`);
+                        fetch(fallbackPath).then(fallbackResponse => {
+                            if(fallbackResponse.ok) {
+                                initWasm(fallbackResponse);
+                            }else{
+                                console.error("unable to find GraphLexer-Wasm");
+                            }
                         });
+                    }
                 });
         }
 
