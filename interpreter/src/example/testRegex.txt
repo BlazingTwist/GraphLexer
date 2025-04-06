@@ -1,0 +1,15 @@
+^\b\B
+(g1)(?<named>:g2)(?i-m:g3)
+\1
+\k<named>
+\cA
+\xfF
+\u1234
+\u{12345}
+\p{property}
+\n\\
+[a0-9-]
+[^-\n-\r]
+(?=la(?!nla(?<=lb(?<!nlb)))){2}
+(?:non[Cap]){20,}
+.{1,12}|alt$

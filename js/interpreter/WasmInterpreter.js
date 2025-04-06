@@ -549,19 +549,21 @@ const WasmInterpreter = {
     /** @type {WasmInterpreter.LanguageModel} */
     LanguageModel: class LanguageModel {
         /**
-         * @param {string} serializedModel
+         * @param {LangTreeNode[]} model
+         * @param {string} rootNode
          */
-        constructor(serializedModel) {
+        constructor(model, rootNode) {
             const controller = WasmInterpreter.init(undefined);
             this.controller = controller;
             this.modelPtr = undefined;
             this.tagNamesByIdx = undefined;
             this.stateNamesByIdx = undefined;
             this.maxNoProgressTicks = 1000;
+            this.rootStateIdx = this.getStateIdxMap(model)[rootNode];
 
             const self = this;
             controller.loadModel(
-                serializedModel,
+                this.serialize(model),
                 modelPtr => self.modelPtr = modelPtr,
                 err => console.error(`Failed to load model: ${err}`)
             );
@@ -578,11 +580,101 @@ const WasmInterpreter = {
         }
 
         /**
-         * @param {number} rootStateIdx
+         * @param {LangTreeNode[]} states
+         * @returns {Object.<string, number>} stateIdxMap
+         */
+        getStateIdxMap(states) {
+            let result = {};
+            for (let i = 0; i < states.length; i++) {
+                let state = states[i];
+                if (state.node.nodeType() !== NodeTypes.state) {
+                    throw new Error("All RootNodes must be a State-Node");
+                }
+                // noinspection JSValidateTypes
+                /** @type {LangNode_State} */
+                let lNode = state.node;
+                result[lNode.stateName] = i;
+            }
+            return result;
+        }
+
+        /**
+         * @param {LangTreeNode[]} states
+         * @returns {string}
+         */
+        serialize(states) {
+            let stateIdxMap = this.getStateIdxMap(states);
+            return states.flatMap(s => this._serialize(s, stateIdxMap)).join("");
+        }
+
+        /**
+         * @param {LangTreeNode} node
+         * @param {Object.<string, number>} stateIdxMap
+         * @returns {string[]}
+         */
+        _serialize(node, stateIdxMap) {
+            let attributeStr = undefined;
+            let nodeTypeNum = undefined;
+
+            if (node.node.nodeType() === NodeTypes.applyTag) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_ApplyTag} */
+                let lNode = node.node;
+                attributeStr = lNode.tagName;
+                nodeTypeNum = 0;
+            } else if (node.node.nodeType() === NodeTypes.subState) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_SubState} */
+                let lNode = node.node;
+                let rep = lNode.repetition;
+                let stateIdx = stateIdxMap[lNode.stateName];
+                if (stateIdx === undefined) {
+                    throw new Error(`SubState references a State that does not exist: '${lNode.stateName}`);
+                }
+                attributeStr = `${stateIdx};${rep.greedy ? 1 : 0};${rep.minRepeat};${rep.maxRepeat === undefined ? -1 : rep.maxRepeat}`;
+                nodeTypeNum = 1;
+            } else if (node.node.nodeType() === NodeTypes.state) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_State} */
+                let lNode = node.node;
+                attributeStr = lNode.stateName;
+                nodeTypeNum = 2;
+            } else if (node.node.nodeType() === NodeTypes.matchUnicode) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_MatchUnicode} */
+                let lNode = node.node;
+                let min = lNode.charCodeConstraint.minCodeInclusive;
+                let max = lNode.charCodeConstraint.maxCodeInclusive;
+                attributeStr = `${min === undefined ? -1 : min};${max === undefined ? -1 : max}`;
+                nodeTypeNum = 3;
+            } else if (node.node.nodeType() === NodeTypes.matchLiteral) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_MatchLiteral} */
+                let lNode = node.node;
+                attributeStr = lNode.literalText;
+                nodeTypeNum = 4;
+            } else if (node.node.nodeType() === NodeTypes.matchRegex) {
+                // noinspection JSValidateTypes
+                /** @type {LangNode_MatchRegex} */
+                let lNode = node.node;
+                attributeStr = lNode.regex;
+                nodeTypeNum = 5;
+            } else {
+                throw new Error("unknown node type: " + node.node.nodeType());
+            }
+
+            // for some reason replaceAll requires "$$$" to insert TWO '$' signs...
+            let result = [`${nodeTypeNum};${node.commit ? 1 : 0};${attributeStr.replaceAll("$", "$$$")}$`];
+            let transitions = node.transitions.flatMap(t => this._serialize(t, stateIdxMap)).map(s => " " + s);
+            result.push(...transitions);
+            return result;
+        }
+
+        /**
          * @param {string} input
          * @param {function(WasmInterpreter.WasmEvalResult)} callback
          */
-        evaluate(rootStateIdx, input, callback) {
+        evaluate(input, callback) {
             const self = this;
 
             /**
@@ -632,7 +724,7 @@ const WasmInterpreter = {
             }
 
             this.controller.evaluate(
-                this, rootStateIdx, input,
+                this, this.rootStateIdx, input,
                 evalResult => {
                     const err = evalResult.error;
 

@@ -21,4 +21,8 @@ const LangTreeNode = class LangTreeNode {
         this.node = node;
         this.transitions = transitions;
     }
+
+    nodeContentText() {
+        return escapeStr(this.node.contentText());
+    }
 }

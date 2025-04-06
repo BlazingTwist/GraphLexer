@@ -57,7 +57,7 @@ function EvalError_IllegalNodeType(nodeType) {
  * @constructor
  */
 function EvalError_InvalidInput(node, committedInput) {
-    let message = `None of the ${node.transitions.length} possible transitions of the '${node.node.contentText()}' ${node.node.nodeType()}-Node accepted the input.`
+    let message = `None of the ${node.transitions.length} possible transitions of the '${node.nodeContentText()}' ${node.node.nodeType()}-Node accepted the input.`
     return {type: 'InvalidInput', message: message, tagStack: [], stateStack: [], committedInput: committedInput};
 }
 
@@ -69,11 +69,19 @@ const LangEvaluator = class LangEvaluator {
     static _maxNoProgressTicks = 1000;
 
     /**
-     * @param {Object.<string, LangTreeNode>} treeNodes
+     * @param {LangTreeNode[]} treeNodes
      * @param {string} rootNode
      */
     constructor(treeNodes, rootNode) {
-        this.treeNodes = treeNodes;
+        let stateNodeMap = {};
+        for (let tNode of treeNodes) {
+            // noinspection JSValidateTypes
+            /** @type {LangNode_State} */
+            let sNode = tNode.node;
+            stateNodeMap[sNode.stateName] = tNode;
+        }
+
+        this.treeNodes = stateNodeMap;
         this.rootNode = rootNode;
     }
 
@@ -97,7 +105,7 @@ const LangEvaluator = class LangEvaluator {
             /** @type {undefined | EvalResult} */
             let subResult = undefined;
             try {
-                subResult = evaluator.evaluate(remainStr);
+                subResult = this.evaluate(remainStr);
             } catch (e) {
                 if (e.hasOwnProperty("type")) {
                     result.evalError = e;

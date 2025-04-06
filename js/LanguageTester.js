@@ -29,7 +29,7 @@ const LanguageTester = class LanguageTester {
 
             const wasmStartTime = Date.now();
             // TODO compare results...
-            instance.wasmModel.evaluate(12 /* TODO HACK */, inputStr, wasmResult => {
+            instance.wasmModel.evaluate(inputStr, wasmResult => {
                 const wasmEndTime = Date.now();
                 console.log(`wasm took ${wasmEndTime - wasmStartTime} ms | matchLen: ${wasmResult.len}`);
 
@@ -263,7 +263,7 @@ const LanguageTester = class LanguageTester {
                 }
 
                 instance.errorGrid.child(`<span>Committed Input</span>`);
-                instance.errorGrid.child(`<span>${err.committedInput}</span>`);
+                instance.errorGrid.child(`<span>${escapeStr(err.committedInput)}</span>`);
             }
         });
 
