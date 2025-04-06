@@ -77,6 +77,12 @@ class AyaGL1 {
             new LangTreeNode(false, new LangNode_ApplyTag("EscapeChar"), [
                 new LangTreeNode(true, new LangNode_MatchRegex("\\\\."), []),
             ]),
+            new LangTreeNode(false, new LangNode_ApplyTag("Interpolation"), [
+                new LangTreeNode(false, new LangNode_MatchLiteral("$"), [
+                    new LangTreeNode(true, new LangNode_SubState("Lambda", undefined), []),
+                    new LangTreeNode(true, new LangNode_SubState("Variable", undefined), []),
+                ]),
+            ]),
             new LangTreeNode(true, new LangNode_MatchRegex("."), []),
         ]),
         new LangTreeNode(false, new LangNode_State("String"), [
@@ -254,7 +260,9 @@ class AyaGL1 {
                 ]),
             ]),
             new LangTreeNode(false, new LangNode_ApplyTag("LongStringLiteral"), [
-                new LangTreeNode(true, new LangNode_MatchRegex("\"\"\".*?\"\"\""), []),
+                new LangTreeNode(true, new LangNode_MatchLiteral("\"\"\""), [
+                    new LangTreeNode(true, new LangNode_MatchRegex(".*?\"\"\""), []),
+                ]),
             ]),
             new LangTreeNode(true, new LangNode_SubState("String", undefined), []),
             new LangTreeNode(false, new LangNode_ApplyTag("SpecialCharLiteral"), [
